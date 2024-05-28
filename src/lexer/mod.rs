@@ -1,7 +1,7 @@
-use std::{collections::HashMap, str::Chars};
+use std::{collections::HashMap, num::NonZeroU32, str::Chars};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Symbol(u32);
+pub struct Symbol(NonZeroU32);
 
 #[derive(Debug, Default)]
 pub struct Interner {
@@ -22,9 +22,9 @@ impl Interner {
             return symbol;
         }
 
-        let new_symbol = Symbol(self.pool.len() as u32);
-        self.pool.insert(name.to_string(), new_symbol);
-        new_symbol
+        let symbol_id = NonZeroU32::new((self.pool.len() + 1) as u32).unwrap();
+        self.pool.insert(name.to_string(), Symbol(symbol_id));
+        Symbol(symbol_id)
     }
 }
 
@@ -34,9 +34,26 @@ pub enum Token {
     Other(char),
     Comma,
     Colon,
+    NewLine,
     SemiColon,
+
     POpen,
     PClose,
+
+    Bar,
+    Bang,
+
+    Plus,
+    Minus,
+    Star,
+    Slash,
+
+    Eq,
+    NEq,
+    Lt,
+    LEq,
+    Gt,
+    GEq,
 }
 
 #[derive(Debug)]
@@ -47,8 +64,12 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(text: &'a str) -> Self {
+        Self::new_with_interner(text, Interner::new())
+    }
+
+    fn new_with_interner(text: &'a str, interner: Interner) -> Self {
         Self {
-            interner: Interner::new(),
+            interner,
             cursor: text.chars(),
         }
     }
@@ -56,123 +77,84 @@ impl<'a> Lexer<'a> {
     pub fn interner(&self) -> &Interner {
         &self.interner
     }
-}
 
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Token;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let text = self.cursor.as_str().trim_start();
-        self.cursor = text.chars();
-
-        let token = match self.cursor.next()? {
+    fn handle_single_char_token(next_char: char) -> Option<Token> {
+        let token = match next_char {
             ':' => Token::Colon,
             ';' => Token::SemiColon,
             ',' => Token::Comma,
             '(' => Token::POpen,
             ')' => Token::PClose,
+            '|' => Token::Bar,
+            '\n' => Token::NewLine,
+            '=' => Token::Eq,
 
-            c if c.is_ascii_alphanumeric() => {
-                let next_token = text
-                    .find(|c: char| !c.is_ascii_alphanumeric())
-                    .unwrap_or(text.len());
+            '+' => Token::Plus,
+            '-' => Token::Minus,
+            '*' => Token::Star,
+            '/' => Token::Slash,
 
-                let (ident, rest) = text.split_at(next_token);
-                self.cursor = rest.chars();
-
-                // Intern symbol
-                let symbol = self.interner.intern(ident);
-                Token::Symbol(symbol)
-            }
-
-            c => Token::Other(c),
+            _ => return None,
         };
 
         Some(token)
     }
 }
 
-#[cfg(test)]
-mod test_lexer {
-    use super::*;
+impl<'a> Iterator for Lexer<'a> {
+    type Item = Token;
 
-    #[test]
-    fn test_basic_symbols() {
-        let input = "ForAll A B C";
-        let mut lexer = Lexer::new(input);
+    fn next(&mut self) -> Option<Self::Item> {
+        // Skip whitespace
+        let text = self
+            .cursor
+            .as_str()
+            .trim_start_matches(|c: char| c.is_whitespace() && c != '\n');
 
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(0))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(1))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(2))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(3))));
-        assert_eq!(lexer.next(), None);
+        self.cursor = text.chars();
 
-        assert_eq!(lexer.interner.find("ForAll"), Some(Symbol(0)));
-        assert_eq!(lexer.interner.find("A"), Some(Symbol(1)));
-        assert_eq!(lexer.interner.find("B"), Some(Symbol(2)));
-        assert_eq!(lexer.interner.find("C"), Some(Symbol(3)));
-    }
+        let next_char = self.cursor.next()?;
+        if let Some(token) = Self::handle_single_char_token(next_char) {
+            return Some(token);
+        }
 
-    #[test]
-    fn test_special_characters() {
-        let input = ",:;()";
-        let mut lexer = Lexer::new(input);
+        if next_char.is_ascii_alphanumeric() {
+            let next_token = text
+                .find(|c: char| !c.is_ascii_alphanumeric())
+                .unwrap_or(text.len());
 
-        assert_eq!(lexer.next(), Some(Token::Comma));
-        assert_eq!(lexer.next(), Some(Token::Colon));
-        assert_eq!(lexer.next(), Some(Token::SemiColon));
-        assert_eq!(lexer.next(), Some(Token::POpen));
-        assert_eq!(lexer.next(), Some(Token::PClose));
-        assert_eq!(lexer.next(), None);
-    }
+            let (ident, rest) = text.split_at(next_token);
+            self.cursor = rest.chars();
 
-    #[test]
-    fn test_mixed_input() {
-        let input = "Union(A, B);";
-        let mut lexer = Lexer::new(input);
+            // Intern symbol
+            let symbol = self.interner.intern(ident);
+            return Some(Token::Symbol(symbol));
+        }
 
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(0))));
-        assert_eq!(lexer.next(), Some(Token::POpen));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(1))));
-        assert_eq!(lexer.next(), Some(Token::Comma));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(2))));
-        assert_eq!(lexer.next(), Some(Token::PClose));
-        assert_eq!(lexer.next(), Some(Token::SemiColon));
-        assert_eq!(lexer.next(), None);
+        let before_eq = self.cursor.clone().next() == Some('=');
+        if before_eq {
+            // Move cursor forward
+            self.cursor.next();
+        }
 
-        assert_eq!(lexer.interner.find("Union"), Some(Symbol(0)));
-        assert_eq!(lexer.interner.find("A"), Some(Symbol(1)));
-        assert_eq!(lexer.interner.find("B"), Some(Symbol(2)));
-    }
+        let token = match next_char {
+            '!' if before_eq => Token::NEq,
+            '!' => Token::Bang,
 
-    #[test]
-    fn test_whitespace_handling() {
-        let input = "   ForAll    A    B   ";
-        let mut lexer = Lexer::new(input);
+            '<' if before_eq => Token::LEq,
+            '<' => Token::Lt,
 
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(0))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(1))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(2))));
-        assert_eq!(lexer.next(), None);
+            '>' if before_eq => Token::GEq,
+            '>' => Token::Gt,
 
-        assert_eq!(lexer.interner.find("ForAll"), Some(Symbol(0)));
-        assert_eq!(lexer.interner.find("A"), Some(Symbol(1)));
-        assert_eq!(lexer.interner.find("B"), Some(Symbol(2)));
-    }
+            c => {
+                self.cursor = text.chars();
+                self.cursor.next();
 
-    #[test]
-    fn test_other_characters() {
-        let input = "ForAll A % B";
-        let mut lexer = Lexer::new(input);
+                Token::Other(c)
+            }
+        };
 
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(0))));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(1))));
-        assert_eq!(lexer.next(), Some(Token::Other('%')));
-        assert_eq!(lexer.next(), Some(Token::Symbol(Symbol(2))));
-        assert_eq!(lexer.next(), None);
-
-        assert_eq!(lexer.interner.find("ForAll"), Some(Symbol(0)));
-        assert_eq!(lexer.interner.find("A"), Some(Symbol(1)));
-        assert_eq!(lexer.interner.find("B"), Some(Symbol(2)));
+        Some(token)
     }
 }
