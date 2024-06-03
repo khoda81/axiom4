@@ -7,8 +7,23 @@ fn main() {
     let mut buf = String::new();
     file.read_to_string(&mut buf).expect("failed to read file");
 
-    let lexer = lexer::Lexer::new(&buf);
-    for token in lexer {
-        eprintln!("{token:?}");
+    let mut lexer = lexer::Lexer::new(&buf);
+    loop {
+        let Some(token) = lexer.next() else { break };
+        match token {
+            lexer::Token::Symbol(symbol) => {
+                let symbol_name = lexer
+                    .interner
+                    .resolve(symbol)
+                    .expect("failed for find symbol");
+
+                eprint!("{symbol_name:?} ");
+            }
+
+            lexer::Token::NewLine => eprintln!("{token:?}"),
+            token => eprint!("{token:?} "),
+        }
     }
+
+    eprintln!("{:?}", lexer.interner);
 }

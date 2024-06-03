@@ -1,34 +1,54 @@
-use std::{collections::HashMap, num::NonZeroU32, str::Chars};
+use std::{collections::HashMap, num::NonZeroU32, rc::Rc, str::Chars};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Symbol(NonZeroU32);
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Interner {
-    pool: HashMap<String, Symbol>,
+    pool: HashMap<Rc<str>, Symbol>,
+    reverse_pool: Vec<Rc<str>>,
 }
 
 impl Interner {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            pool: HashMap::new(),
+            reverse_pool: vec![Rc::from("")],
+        }
     }
 
-    pub fn find(&mut self, name: &str) -> Option<Symbol> {
+    pub fn find(&self, name: &str) -> Option<Symbol> {
         self.pool.get(name).copied()
     }
 
+    pub fn resolve(&self, symbol: Symbol) -> Option<&str> {
+        self.reverse_pool
+            .get(symbol.0.get() as usize)
+            .map(|rc_str| &**rc_str)
+    }
+
     pub fn intern(&mut self, name: &str) -> Symbol {
-        if let Some(symbol) = self.find(name) {
+        if let Some(&symbol) = self.pool.get(name) {
             return symbol;
         }
 
-        let symbol_id = NonZeroU32::new((self.pool.len() + 1) as u32).unwrap();
-        self.pool.insert(name.to_string(), Symbol(symbol_id));
+        let symbol_id = NonZeroU32::new(self.reverse_pool.len() as u32)
+            .expect("the length of reverse pool should not be 0 or exceed u32::MAX");
+
+        let rc_name: Rc<str> = Rc::from(name);
+        self.pool.insert(rc_name.clone(), Symbol(symbol_id));
+        self.reverse_pool.push(rc_name);
         Symbol(symbol_id)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl Default for Interner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     Symbol(Symbol),
     Other(char),
@@ -56,9 +76,9 @@ pub enum Token {
     GEq,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Lexer<'a> {
-    interner: Interner,
+    pub interner: Interner,
     cursor: Chars<'a>,
 }
 
@@ -72,10 +92,6 @@ impl<'a> Lexer<'a> {
             interner,
             cursor: text.chars(),
         }
-    }
-
-    pub fn interner(&self) -> &Interner {
-        &self.interner
     }
 
     fn handle_single_char_token(next_char: char) -> Option<Token> {
