@@ -3,13 +3,23 @@ use std::{collections::HashMap, num::NonZeroU32, rc::Rc, str::Chars};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Symbol(NonZeroU32);
 
+impl Symbol {
+    pub fn as_usize(self) -> usize {
+        self.0.get() as usize
+    }
+
+    pub fn try_from_usize(value: usize) -> Option<Self> {
+        NonZeroU32::new(value as u32).map(Symbol)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Interner {
+pub struct StringInterner {
     pool: HashMap<Rc<str>, Symbol>,
     reverse_pool: Vec<Rc<str>>,
 }
 
-impl Interner {
+impl StringInterner {
     pub fn new() -> Self {
         Self {
             pool: HashMap::new(),
@@ -42,7 +52,7 @@ impl Interner {
     }
 }
 
-impl Default for Interner {
+impl Default for StringInterner {
     fn default() -> Self {
         Self::new()
     }
@@ -78,16 +88,16 @@ pub enum Token {
 
 #[derive(Clone, Debug)]
 pub struct Lexer<'a> {
-    pub interner: Interner,
+    pub interner: StringInterner,
     cursor: Chars<'a>,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(text: &'a str) -> Self {
-        Self::new_with_interner(text, Interner::new())
+        Self::new_with_interner(text, StringInterner::new())
     }
 
-    fn new_with_interner(text: &'a str, interner: Interner) -> Self {
+    fn new_with_interner(text: &'a str, interner: StringInterner) -> Self {
         Self {
             interner,
             cursor: text.chars(),

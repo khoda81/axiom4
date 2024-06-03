@@ -40,9 +40,10 @@ impl Node64 {
     const VALUE_MASK: u64 = u64::MAX >> 2;
     const VALUE_OFFSET: u64 = Self::VALUE_MASK + 1;
 
-    const REFERENCE_KIND: u64 = Self::VALUE_OFFSET * 1;
-    const LEAF_KIND: u64 = Self::VALUE_OFFSET * 2;
-    const OPERATOR_KIND: u64 = Self::VALUE_OFFSET * 3;
+    #[allow(clippy::identity_op)]
+    const REFERENCE_KIND: u64 = Self::VALUE_OFFSET * 0b01;
+    const LEAF_KIND: u64 = Self::VALUE_OFFSET * 0b10;
+    const OPERATOR_KIND: u64 = Self::VALUE_OFFSET * 0b11;
 
     pub fn new(node: Node) -> Result<Self, OutOfBoundNode64Error> {
         let value = node.value();
@@ -114,9 +115,10 @@ impl Node32 {
     const VALUE_MASK: u32 = u32::MAX >> 2;
     const VALUE_OFFSET: u32 = Self::VALUE_MASK + 1;
 
-    const REFERENCE_KIND: u32 = Self::VALUE_OFFSET * 1;
-    const LEAF_KIND: u32 = Self::VALUE_OFFSET * 2;
-    const OPERATOR_KIND: u32 = Self::VALUE_OFFSET * 3;
+    #[allow(clippy::identity_op)]
+    const REFERENCE_KIND: u32 = Self::VALUE_OFFSET * 0b01;
+    const LEAF_KIND: u32 = Self::VALUE_OFFSET * 0b10;
+    const OPERATOR_KIND: u32 = Self::VALUE_OFFSET * 0b11;
 
     pub fn new(node: Node) -> Result<Self, OutOfBoundNode32Error> {
         let value = node.value();
