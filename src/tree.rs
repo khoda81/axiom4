@@ -7,14 +7,15 @@ use thiserror::Error;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Leaf(usize),
-    Reference(usize),
     BinaryOperator(usize),
+    Reference(NodeId),
 }
 
 impl Node {
     fn value(self) -> usize {
         match self {
-            Node::Leaf(value) | Node::Reference(value) | Node::BinaryOperator(value) => value,
+            Node::Leaf(value) | Node::BinaryOperator(value) => value,
+            Node::Reference(NodeId(index)) => index,
         }
     }
 }
@@ -70,7 +71,7 @@ impl Node64 {
         let kind = self.0.get() & !Self::VALUE_MASK;
 
         if kind == Self::REFERENCE_KIND {
-            Node::Reference(value)
+            Node::Reference(NodeId(value))
         } else if kind == Self::LEAF_KIND {
             Node::Leaf(value)
         } else {
@@ -144,7 +145,7 @@ impl Node32 {
         let kind = self.0.get() & !Self::VALUE_MASK;
 
         if kind == Self::REFERENCE_KIND {
-            Node::Reference(value)
+            Node::Reference(NodeId(value))
         } else if kind == Self::LEAF_KIND {
             Node::Leaf(value)
         } else {
@@ -242,8 +243,8 @@ impl TreeInterner {
         }
 
         let last_node = self.nodes.len() - 1;
-        let left_ref = Node64::new(Node::Reference(left.0))?;
-        let right_ref = Node64::new(Node::Reference(right.0))?;
+        let left_ref = Node64::new(Node::Reference(left))?;
+        let right_ref = Node64::new(Node::Reference(right))?;
         let node = Node64::new(Node::BinaryOperator(operator))?;
 
         if left.0 == last_node - 1 && right.0 == last_node {
@@ -275,7 +276,7 @@ impl TreeInterner {
 
     fn resolve_index(&self, node_index: usize) -> NodeId {
         match self.nodes[node_index].into_node() {
-            Node::Reference(node_index) => NodeId(node_index),
+            Node::Reference(node_id) => node_id,
             Node::Leaf(_) | Node::BinaryOperator(_) => NodeId(node_index),
         }
     }
