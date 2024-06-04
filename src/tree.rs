@@ -1,6 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    num::{NonZeroU32, NonZeroU64},
+    num::NonZeroU64,
 };
 use thiserror::Error;
 
@@ -8,14 +8,12 @@ use thiserror::Error;
 pub enum Node {
     Leaf(usize),
     BinaryOperator(usize),
-    Reference(NodeId),
 }
 
 impl Node {
-    fn value(self) -> usize {
+    pub(crate) fn value(self) -> usize {
         match self {
             Node::Leaf(value) | Node::BinaryOperator(value) => value,
-            Node::Reference(NodeId(index)) => index,
         }
     }
 }
@@ -47,6 +45,37 @@ impl Node64 {
 
     pub fn new(node: Node) -> Result<Self, OutOfBoundNode64Error> {
         let value = node.value();
+        let kind = match node {
+            Node::Leaf(_) => Self::LEAF_KIND,
+            Node::BinaryOperator(_) => Self::OPERATOR_KIND,
+        };
+
+        let mask = kind | Self::value_mask(value)?;
+        let mask = NonZeroU64::new(mask).expect("kind mask should be nonzero");
+        Ok(Self(mask))
+    }
+
+    pub fn new_reference(node_id: NodeId) -> Result<Self, OutOfBoundNode64Error> {
+        let value = node_id.0;
+        let mask = Self::REFERENCE_KIND | Self::value_mask(value)?;
+        let mask = NonZeroU64::new(mask).expect("kind mask should be nonzero");
+        Ok(Self(mask))
+    }
+
+    pub fn into_node(self) -> Result<Node, NodeId> {
+        let value = (self.0.get() & Self::VALUE_MASK) as usize;
+        let kind = self.0.get() & !Self::VALUE_MASK;
+
+        if kind == Self::REFERENCE_KIND {
+            Err(NodeId(value))
+        } else if kind == Self::LEAF_KIND {
+            Ok(Node::Leaf(value))
+        } else {
+            Ok(Node::BinaryOperator(value))
+        }
+    }
+
+    fn value_mask(value: usize) -> Result<u64, OutOfBoundNode64Error> {
         if value > u64::MAX as usize {
             return Err(OutOfBoundNode64Error(value));
         }
@@ -56,34 +85,7 @@ impl Node64 {
             return Err(OutOfBoundNode64Error(value));
         }
 
-        let kind = match node {
-            Node::Leaf(_) => Self::LEAF_KIND,
-            Node::Reference(_) => Self::REFERENCE_KIND,
-            Node::BinaryOperator(_) => Self::OPERATOR_KIND,
-        };
-
-        let mask = kind | value_u64;
-        let mask = NonZeroU64::new(mask).expect("kind mask should be nonzero");
-        Ok(Self(mask))
-    }
-
-    pub fn into_node(self) -> Node {
-        let value = (self.0.get() & Self::VALUE_MASK) as usize;
-        let kind = self.0.get() & !Self::VALUE_MASK;
-
-        if kind == Self::REFERENCE_KIND {
-            Node::Reference(NodeId(value))
-        } else if kind == Self::LEAF_KIND {
-            Node::Leaf(value)
-        } else {
-            Node::BinaryOperator(value)
-        }
-    }
-}
-
-impl From<Node64> for Node {
-    fn from(node64: Node64) -> Self {
-        node64.into_node()
+        Ok(value_u64)
     }
 }
 
@@ -92,81 +94,6 @@ impl TryFrom<Node> for Node64 {
 
     fn try_from(node: Node) -> Result<Self, Self::Error> {
         Node64::new(node)
-    }
-}
-
-/// Stores a node in a single u32
-///
-/// Stores the node kind in the last two bits.
-/// | Last 2 Bits | Node Kind | Supported Range |
-/// |-------------|-----------|-----------------|
-/// | 01          | Reference | 0..2**30        |
-/// | 10          | Leaf      | 0..2**30        |
-/// | 11          | Operator  | 0..2**30        |
-///
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Node32(NonZeroU32);
-
-#[derive(Error, Debug, Copy, Clone)]
-#[error("Node value {0} exceeds the supported range for Node64 (0..2**30)")]
-pub struct OutOfBoundNode32Error(pub usize);
-
-impl Node32 {
-    const VALUE_MASK: u32 = u32::MAX >> 2;
-    const VALUE_OFFSET: u32 = Self::VALUE_MASK + 1;
-
-    #[allow(clippy::identity_op)]
-    const REFERENCE_KIND: u32 = Self::VALUE_OFFSET * 0b01;
-    const LEAF_KIND: u32 = Self::VALUE_OFFSET * 0b10;
-    const OPERATOR_KIND: u32 = Self::VALUE_OFFSET * 0b11;
-
-    pub fn new(node: Node) -> Result<Self, OutOfBoundNode32Error> {
-        let value = node.value();
-        if value > u32::MAX as usize {
-            return Err(OutOfBoundNode32Error(value));
-        }
-
-        let value_u32 = value as u32;
-        if (value_u32 & !Self::VALUE_MASK) != 0 {
-            return Err(OutOfBoundNode32Error(value));
-        }
-
-        let kind = match node {
-            Node::Leaf(_) => Self::LEAF_KIND,
-            Node::Reference(_) => Self::REFERENCE_KIND,
-            Node::BinaryOperator(_) => Self::OPERATOR_KIND,
-        };
-
-        let mask = kind | value_u32;
-        let mask = NonZeroU32::new(mask).expect("kind mask should be nonzero");
-        Ok(Self(mask))
-    }
-
-    pub fn into_node(self) -> Node {
-        let value = (self.0.get() & Self::VALUE_MASK) as usize;
-        let kind = self.0.get() & !Self::VALUE_MASK;
-
-        if kind == Self::REFERENCE_KIND {
-            Node::Reference(NodeId(value))
-        } else if kind == Self::LEAF_KIND {
-            Node::Leaf(value)
-        } else {
-            Node::BinaryOperator(value)
-        }
-    }
-}
-
-impl From<Node32> for Node {
-    fn from(node32: Node32) -> Self {
-        node32.into_node()
-    }
-}
-
-impl TryFrom<Node> for Node32 {
-    type Error = OutOfBoundNode32Error;
-
-    fn try_from(node: Node) -> Result<Self, Self::Error> {
-        Node32::new(node)
     }
 }
 
@@ -230,7 +157,7 @@ impl TreeInterner {
             .ok_or(InvalidNodeId(left))
             .expect("failed to resolve node ref left (node id is out of bound)");
 
-        if matches!(left_node.into_node(), Node::Reference(_)) {
+        if left_node.into_node().is_err() {
             panic!("failed to resolve node ref left (node id points to another reference)");
         }
 
@@ -240,13 +167,13 @@ impl TreeInterner {
             .ok_or(InvalidNodeId(right))
             .expect("failed to resolve node ref right (node id is out of bound)");
 
-        if matches!(right_node.into_node(), Node::Reference(_)) {
+        if right_node.into_node().is_err() {
             panic!("failed to resolve node ref right (node id points to another reference)");
         }
 
         let last_node = self.nodes.len() - 1;
-        let left_ref = Node64::new(Node::Reference(left))?;
-        let right_ref = Node64::new(Node::Reference(right))?;
+        let left_ref = Node64::new_reference(left)?;
+        let right_ref = Node64::new_reference(right)?;
         let node = Node64::new(Node::BinaryOperator(operator))?;
 
         if left.0 == last_node - 1 && right.0 == last_node {
@@ -265,7 +192,9 @@ impl TreeInterner {
     }
 
     pub fn resolve(&self, node_id: NodeId) -> Node {
-        self.nodes[node_id.0].into_node()
+        self.nodes[node_id.0]
+            .into_node()
+            .expect("given node id points to a reference node")
     }
 
     pub fn right_child(&self, node_id: NodeId) -> NodeId {
@@ -278,8 +207,8 @@ impl TreeInterner {
 
     fn resolve_index(&self, node_index: usize) -> NodeId {
         match self.nodes[node_index].into_node() {
-            Node::Reference(node_id) => node_id,
-            Node::Leaf(_) | Node::BinaryOperator(_) => NodeId(node_index),
+            Ok(_) => NodeId(node_index),
+            Err(node_id) => node_id,
         }
     }
 }

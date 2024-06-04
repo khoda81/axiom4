@@ -144,10 +144,10 @@ impl<'a> Iterator for Lexer<'a> {
             return Some(token);
         }
 
-        if next_char.is_ascii_alphanumeric() {
-            let next_token = text
-                .find(|c: char| !c.is_ascii_alphanumeric())
-                .unwrap_or(text.len());
+        let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+
+        if is_ident(next_char) {
+            let next_token = text.find(|c| !is_ident(c)).unwrap_or(text.len());
 
             let (ident, rest) = text.split_at(next_token);
             self.cursor = rest.chars();

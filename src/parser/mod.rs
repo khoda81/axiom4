@@ -1,13 +1,15 @@
+use crate::{
+    lexer::{StringInterner, Symbol, Token},
+    tree::{Node, NodeId, TreeInterner},
+};
 use nom::{
     error::ErrorKind,
+    multi::many1,
     sequence::{delimited, pair},
-    Err, IResult,
+    Err, IResult, Parser as _,
 };
 
-use crate::{
-    lexer::{StringInterner, Token},
-    tree::{NodeId, TreeInterner},
-};
+pub mod utils;
 
 pub enum ParseError {
     UnmatchedToken {
@@ -89,9 +91,9 @@ impl Parser {
         }
 
         delimited(
-            take_if(|&t: &Token| t == Token::POpen),
+            utils::take_if(|&t: &Token| t == Token::POpen),
             |inp| self.parse_expression(inp),
-            take_if(|&t: &Token| t == Token::PClose),
+            utils::take_if(|&t: &Token| t == Token::PClose),
         )(input)
     }
 
@@ -101,7 +103,8 @@ impl Parser {
         let mul_symbol = self.string_interner.intern(Self::MUL);
 
         loop {
-            let parse_operator = take_if(|&t: &Token| matches!(t, Token::Star | Token::Slash));
+            let parse_operator =
+                utils::take_if(|&t: &Token| matches!(t, Token::Star | Token::Slash));
 
             let len = rest.len();
             let parse_result = pair(parse_operator, |inp| self.parse_factor(inp))(rest);
@@ -144,7 +147,8 @@ impl Parser {
         let unary_symbol = self.string_interner.intern(Self::UNARY);
 
         loop {
-            let parse_operator = take_if(|&t: &Token| matches!(t, Token::Minus | Token::Plus));
+            let parse_operator =
+                utils::take_if(|&t: &Token| matches!(t, Token::Minus | Token::Plus));
 
             let len = rest.len();
             let parse_result = pair(parse_operator, |inp| self.parse_term(inp))(rest);
@@ -182,14 +186,14 @@ impl Parser {
         let eq_symbol = self.string_interner.intern(Self::EQ);
         let lt_symbol = self.string_interner.intern(Self::LT);
 
-        let parse_operator = take_if(|&t: &Token| {
+        let parse_operator = utils::take_if(|&t: &Token| {
             matches!(
                 t,
                 Token::Eq | Token::NEq | Token::Lt | Token::LEq | Token::Gt | Token::GEq
             )
         });
 
-        let parse_result = pair(parse_operator, |inp| self.parse_term(inp))(rest);
+        let parse_result = pair(parse_operator, |inp| self.parse_expression(inp))(rest);
 
         match parse_result {
             Err(nom::Err::Error(_)) => Ok((rest, (false, left_side))),
@@ -226,26 +230,34 @@ impl Parser {
 
     pub fn parse_conjunction<'a>(
         &mut self,
-        mut input: &'a [Token],
+        input: &'a [Token],
     ) -> IResult<&'a [Token], Vec<Clause>> {
         // Skip all the new line characters
-        while let [Token::NewLine, rest @ ..] = input {
-            input = rest;
-        }
+        let (input, _num_lines) = utils::eat_newline(input)?;
 
-        let (mut rest, first_clause) = self.parse_clause(input)?;
-        let mut conjunction = vec![first_clause];
+        let (mut rest, mut conjunction) = match self.parse_clause(input) {
+            Ok((rest, clause)) => (rest, vec![clause]),
+            Err(nom::Err::Error(_)) => (input, vec![]),
+            Err(e) => return Err(e),
+        };
 
         loop {
-            let parse_operator = take_if(|&t: &Token| matches!(t, Token::Bar));
+            let parse_operator =
+                utils::take_if(|&t: &Token| matches!(t, Token::Bar | Token::Bang)).map(|s| *s);
 
             let len = rest.len();
-            let parse_result = pair(parse_operator, |inp| self.parse_clause(inp))(rest);
+            let parse_result = pair(many1(parse_operator), |inp| self.parse_clause(inp))(rest);
 
             match parse_result {
-                Err(nom::Err::Error(_)) => return Ok((rest, conjunction)),
+                Err(nom::Err::Error(_)) => {
+                    if conjunction.is_empty() {
+                        return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many1)));
+                    }
+
+                    return Ok((rest, conjunction));
+                }
                 Err(e) => return Err(e),
-                Ok((new_rest, (_operator, clause))) => {
+                Ok((new_rest, (operators, (mut is_neg, clause)))) => {
                     rest = new_rest;
 
                     // infinite loop check: the parser must always consume
@@ -253,8 +265,57 @@ impl Parser {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many0)));
                     }
 
-                    conjunction.push(clause);
+                    operators
+                        .into_iter()
+                        .filter(|&op| op == Token::Bang)
+                        .for_each(|_| is_neg = !is_neg);
+
+                    conjunction.push((is_neg, clause));
                 }
+            }
+        }
+    }
+
+    pub fn print_tree(&self, node_id: NodeId) {
+        let node = self.tree_interner.resolve(node_id);
+        let symbol = Symbol::try_from_usize(node.value()).expect("failed to make symbol from leaf");
+
+        let node_name = self
+            .string_interner
+            .resolve(symbol)
+            .expect("could not find symbol");
+
+        let inline_name = match node_name {
+            Self::ADD => Some("+"),
+            _ => None,
+        };
+
+        match node {
+            Node::Leaf(_) => {
+                eprint!("{node_name}");
+            }
+
+            Node::BinaryOperator(_) => {
+                let left = self.tree_interner.left_child(node_id);
+                let right = self.tree_interner.right_child(node_id);
+
+                if node_name == Self::UNARY {
+                    self.print_tree(right);
+                    eprint!("(");
+                    self.print_tree(left);
+                } else if let Some(inline_name) = inline_name {
+                    eprint!("(");
+                    self.print_tree(left);
+                    eprint!(" {inline_name} ");
+                    self.print_tree(right);
+                } else {
+                    eprint!("{node_name}(");
+                    self.print_tree(left);
+                    eprint!(", ");
+                    self.print_tree(right);
+                }
+
+                eprint!(")");
             }
         }
     }
@@ -263,31 +324,5 @@ impl Parser {
 impl Default for Parser {
     fn default() -> Self {
         Self::new(StringInterner::new())
-    }
-}
-
-// impl<'a, I, O, E, F> Parser<I, O, E> for F
-// where
-//   F: FnMut(I) -> IResult<I, O, E> + 'a,
-// {
-//   fn parse(&mut self, i: I) -> IResult<I, O, E> {
-//     self(i)
-//   }
-// }
-
-fn take_if<'a, T, F: FnMut(&T) -> bool>(
-    mut f: F,
-) -> impl nom::Parser<&'a [T], &'a T, nom::error::Error<&'a [T]>> {
-    move |input: &'a [T]| -> IResult<&'a [T], &'a T> {
-        if let [first, rest @ ..] = input {
-            if f(first) {
-                return Ok((rest, first));
-            }
-        }
-
-        Err(nom::Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Tag,
-        )))
     }
 }
