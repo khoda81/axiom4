@@ -1,4 +1,5 @@
 use crate::{
+    cnf::{self, Sign},
     lexer::{
         interner::{StringInterner, Symbol},
         Token,
@@ -36,7 +37,7 @@ pub struct Parser {
     pub string_interner: StringInterner,
 }
 
-type Clause = (bool, NodeId);
+type Clause = (Sign, NodeId);
 
 impl Parser {
     const UNARY: &'static str = "unary_operator";
@@ -179,7 +180,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_clause<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], (bool, NodeId)> {
+    pub fn parse_clause<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], Clause> {
         let (rest, mut left_side) = self.parse_expression(input)?;
         let eq_symbol = self.string_interner.intern(Self::EQ);
         let lt_symbol = self.string_interner.intern(Self::LT);
@@ -194,23 +195,23 @@ impl Parser {
         let parse_result = pair(parse_operator, |inp| self.parse_expression(inp))(rest);
 
         match parse_result {
-            Err(nom::Err::Error(_)) => Ok((rest, (false, left_side))),
+            Err(nom::Err::Error(_)) => Ok((rest, (Sign::Positive, left_side))),
             Err(e) => Err(e),
             Ok((rest, (&operator, mut right_side))) => {
-                let (is_negated, operator) = match operator {
-                    Token::Eq => (false, eq_symbol),
-                    Token::NEq => (true, eq_symbol),
+                let (sign, operator) = match operator {
+                    Token::Eq => (Sign::Positive, eq_symbol),
+                    Token::NEq => (Sign::Negative, eq_symbol),
 
-                    Token::Lt => (false, lt_symbol),
+                    Token::Lt => (Sign::Positive, lt_symbol),
                     Token::Gt => {
                         (right_side, left_side) = (left_side, right_side);
-                        (false, lt_symbol)
+                        (Sign::Positive, lt_symbol)
                     }
 
-                    Token::GEq => (true, lt_symbol),
+                    Token::GEq => (Sign::Negative, lt_symbol),
                     Token::LEq => {
                         (right_side, left_side) = (left_side, right_side);
-                        (true, lt_symbol)
+                        (Sign::Negative, lt_symbol)
                     }
 
                     _ => unreachable!(),
@@ -218,7 +219,7 @@ impl Parser {
 
                 let clause = self.make_binary_expression(operator, left_side, right_side);
 
-                Ok((rest, (is_negated, clause)))
+                Ok((rest, (sign, clause)))
             }
         }
     }
@@ -226,13 +227,18 @@ impl Parser {
     pub fn parse_conjunction<'a>(
         &mut self,
         input: &'a [Token],
-    ) -> IResult<&'a [Token], Vec<Clause>> {
+    ) -> IResult<&'a [Token], cnf::ConjunctionVec> {
         // Skip all the new line characters
         let (input, _num_lines) = utils::eat_newline(input)?;
 
-        let (mut rest, mut conjunction) = match self.parse_clause(input) {
-            Ok((rest, clause)) => (rest, vec![clause]),
-            Err(nom::Err::Error(_)) => (input, vec![]),
+        let mut conjunction = cnf::ConjunctionVec::new();
+
+        let mut rest = match self.parse_clause(input) {
+            Ok((rest, (sign, clause))) => {
+                conjunction.push(sign, clause);
+                rest
+            }
+            Err(nom::Err::Error(_)) => input,
             Err(e) => return Err(e),
         };
 
@@ -252,7 +258,7 @@ impl Parser {
                     return Ok((rest, conjunction));
                 }
                 Err(e) => return Err(e),
-                Ok((rest, (operators, (mut is_neg, clause)))) => {
+                Ok((rest, (operators, (mut sign, clause)))) => {
                     // infinite loop check: the parser must always consume
                     if rest.len() == len {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many0)));
@@ -261,9 +267,9 @@ impl Parser {
                     operators
                         .into_iter()
                         .filter(|&op| op == Token::Bang)
-                        .for_each(|_| is_neg = !is_neg);
+                        .for_each(|_| sign = !sign);
 
-                    conjunction.push((is_neg, clause));
+                    conjunction.push(sign, clause);
                     rest
                 }
             }

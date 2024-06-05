@@ -13,16 +13,17 @@ fn main() {
     let mut input = tokens.as_slice();
     let input_size = input.len();
 
-    while let Ok((rest, conjunction)) = parser.parse_conjunction(input) {
+    while let Ok((rest, mut conjunction)) = parser.parse_conjunction(input) {
         input = rest;
 
-        for (is_negated, clause) in conjunction {
-            if is_negated {
-                eprint!("! ")
-            } else {
-                eprint!("| ");
-            }
+        for clause in conjunction.drain_positive() {
+            eprint!("| ");
+            parser.print_tree(clause);
+            eprint!(" ");
+        }
 
+        for clause in conjunction.drain_negatives() {
+            eprint!("! ");
             parser.print_tree(clause);
             eprint!(" ");
         }
@@ -33,10 +34,10 @@ fn main() {
     let (input, _) = parser::utils::eat_newline(input).expect("failed to eat newlines");
 
     println!();
-    println!("{} remaining tokens out of {input_size}", input.len());
-    println!();
-    println!("Tree Interner: ");
+    println!("Remainder: {}/{input_size} Tokens", input.len());
 
+    println!();
+    println!("Interned Trees: ");
     let nodes: Vec<_> = parser.tree_interner.iter_nodes().collect();
     for (idx, node) in parser.tree_interner.iter_nodes().enumerate() {
         eprint!("{idx}: ");
@@ -55,14 +56,14 @@ fn main() {
             .expect("could not find symbol");
 
         match node.kind {
-            tree::NodeKind::Term => eprintln!("term({node_name})"),
+            tree::NodeKind::Term => eprintln!("trm({node_name})"),
             tree::NodeKind::Variable => eprintln!("var({node_name})"),
             tree::NodeKind::BinaryOperator => eprintln!("bop({node_name})"),
         }
     }
 
     println!();
-    println!("String Interner: ");
+    println!("Interned Strings: ");
     println!("{:?}", parser.string_interner.pool());
 }
 

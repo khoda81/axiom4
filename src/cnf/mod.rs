@@ -5,10 +5,22 @@ use section_vec::{Section, SectionVec};
 
 pub mod section_vec;
 
-#[derive(Clone, Debug)]
-pub struct CNF {
-    positive_clauses: SectionVec<NodeId>,
-    negative_clauses: SectionVec<NodeId>,
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum Sign {
+    #[default]
+    Positive,
+    Negative,
+}
+
+impl std::ops::Not for Sign {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Sign::Positive => Sign::Negative,
+            Sign::Negative => Sign::Positive,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -25,22 +37,32 @@ impl ConjunctionVec {
         }
     }
 
-    pub fn push(&mut self, clause: NodeId, is_positive: bool) {
-        if is_positive {
-            self.num_positives += 1;
-            self.clauses.push_back(clause)
-        } else {
-            self.clauses.push_front(clause)
+    pub fn push(&mut self, sign: Sign, clause: NodeId) {
+        match sign {
+            Sign::Positive => {
+                self.num_positives += 1;
+                self.clauses.push_front(clause)
+            }
+            Sign::Negative => self.clauses.push_back(clause),
         }
     }
 
     pub fn drain_positive(&mut self) -> impl Iterator<Item = NodeId> + '_ {
+        let num_positives = self.num_positives;
         self.num_positives = 0;
-        self.clauses.drain(..self.num_positives)
+        self.clauses.drain(..num_positives)
     }
 
     pub fn drain_negatives(&mut self) -> impl Iterator<Item = NodeId> + '_ {
         self.clauses.drain(self.num_positives..)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.clauses.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.clauses.len()
     }
 }
 
@@ -54,6 +76,12 @@ impl ConjunctionRef<'_> {}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ConjunctionId(Section);
+
+#[derive(Clone, Debug)]
+pub struct CNF {
+    positive_clauses: SectionVec<NodeId>,
+    negative_clauses: SectionVec<NodeId>,
+}
 
 impl CNF {
     pub fn new() -> Self {
@@ -76,11 +104,10 @@ impl CNF {
         self.negative_clauses.extend(conjunction.drain_negatives());
     }
 
-    pub fn find_conjunction(&self, index: usize, positive: bool) -> ConjunctionId {
-        let section = if positive {
-            self.positive_clauses.find_section(index)
-        } else {
-            self.negative_clauses.find_section(index)
+    pub fn find_conjunction(&self, index: usize, sign: Sign) -> ConjunctionId {
+        let section = match sign {
+            Sign::Positive => self.positive_clauses.find_section(index),
+            Sign::Negative => self.negative_clauses.find_section(index),
         };
 
         ConjunctionId(section)
