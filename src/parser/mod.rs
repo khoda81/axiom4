@@ -3,7 +3,7 @@ use crate::{
         interner::{StringInterner, Symbol},
         Token,
     },
-    tree::{Node, NodeId, TreeInterner},
+    tree::{NodeId, NodeKind, TreeInterner},
 };
 use nom::{
     error::ErrorKind,
@@ -60,35 +60,43 @@ impl Parser {
         }
     }
 
+    fn make_factor(&mut self, symbol: Symbol) -> NodeId {
+        self.tree_interner
+            .intern_term(symbol)
+            .expect("failed to intern symbol as a factor")
+    }
+
+    fn make_variable(&mut self, symbol: Symbol) -> NodeId {
+        self.tree_interner
+            .intern_variable(symbol)
+            .expect("failed to intern symbol as a variable")
+    }
+
+    fn make_binary_expression(&mut self, operator: Symbol, left: NodeId, right: NodeId) -> NodeId {
+        self.tree_interner
+            .intern_operator(operator, left, right)
+            .expect("failed to intern a binary operator")
+    }
+
     pub fn parse_factor<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         if let [Token::Symbol(symbol), rest @ ..] = input {
-            // TODO: Treat free variables differently
-            let leaf_value = symbol.as_usize();
+            let factor = self.make_factor(*symbol);
+            return Ok((rest, factor));
+        }
 
-            let node_id = self
-                .tree_interner
-                .intern_leaf(leaf_value)
-                .expect("failed to intern symbol as a factor");
-
-            return Ok((rest, node_id));
+        if let [Token::Other('{'), Token::Symbol(symbol), Token::Other('}'), rest @ ..] = input {
+            let variable = self.make_variable(*symbol);
+            return Ok((rest, variable));
         }
 
         if let [Token::Minus, rest @ ..] = input {
-            // TODO: Treat free variables differently
             let (rest, inner_node) = self.parse_factor(rest)?;
 
-            let neg_symbol = self.string_interner.intern(Self::NEG);
-            let unary_symbol = self.string_interner.intern(Self::UNARY);
+            let neg = self.string_interner.intern(Self::NEG);
+            let unary = self.string_interner.intern(Self::UNARY);
 
-            let neg_node = self
-                .tree_interner
-                .intern_leaf(neg_symbol.as_usize())
-                .expect("failed to intern a neg");
-
-            let node_id = self
-                .tree_interner
-                .intern_operator(unary_symbol.as_usize(), inner_node, neg_node)
-                .expect("failed to intern a binary operator");
+            let neg_node = self.make_factor(neg);
+            let node_id = self.make_binary_expression(unary, inner_node, neg_node);
 
             return Ok((rest, node_id));
         }
@@ -129,10 +137,7 @@ impl Parser {
                         _ => unreachable!("token should be either slash or star"),
                     };
 
-                    term = self
-                        .tree_interner
-                        .intern_operator(operator.as_usize(), term, factor)
-                        .expect("failed to intern a binary operator");
+                    term = self.make_binary_expression(operator, term, factor);
                 }
             }
         }
@@ -141,10 +146,7 @@ impl Parser {
     pub fn parse_expression<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         let (mut rest, mut expression) = self.parse_term(input)?;
         let neg_symbol = self.string_interner.intern(Self::NEG);
-        let neg_node = self
-            .tree_interner
-            .intern_leaf(neg_symbol.as_usize())
-            .expect("failed to intern a neg");
+        let neg_node = self.make_factor(neg_symbol);
 
         let add_symbol = self.string_interner.intern(Self::ADD);
         let unary_symbol = self.string_interner.intern(Self::UNARY);
@@ -156,12 +158,10 @@ impl Parser {
             let len = rest.len();
             let parse_result = pair(parse_operator, |inp| self.parse_term(inp))(rest);
 
-            match parse_result {
+            rest = match parse_result {
                 Err(nom::Err::Error(_)) => return Ok((rest, expression)),
                 Err(e) => return Err(e),
-                Ok((new_rest, (&operator, mut term))) => {
-                    rest = new_rest;
-
+                Ok((rest, (&operator, mut term))) => {
                     // infinite loop check: the parser must always consume
                     if rest.len() == len {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many0)));
@@ -169,16 +169,11 @@ impl Parser {
 
                     if let Token::Minus = operator {
                         // term <- neg(term)
-                        term = self
-                            .tree_interner
-                            .intern_operator(unary_symbol.as_usize(), term, neg_node)
-                            .expect("failed to intern a binary operator");
-                    };
+                        term = self.make_binary_expression(unary_symbol, term, neg_node);
+                    }
 
-                    expression = self
-                        .tree_interner
-                        .intern_operator(add_symbol.as_usize(), expression, term)
-                        .expect("failed to intern a binary operator");
+                    expression = self.make_binary_expression(add_symbol, expression, term);
+                    rest
                 }
             }
         }
@@ -221,10 +216,7 @@ impl Parser {
                     _ => unreachable!(),
                 };
 
-                let clause = self
-                    .tree_interner
-                    .intern_operator(operator.as_usize(), left_side, right_side)
-                    .expect("failed to intern a binary operator");
+                let clause = self.make_binary_expression(operator, left_side, right_side);
 
                 Ok((rest, (is_negated, clause)))
             }
@@ -251,7 +243,7 @@ impl Parser {
             let len = rest.len();
             let parse_result = pair(many1(parse_operator), |inp| self.parse_clause(inp))(rest);
 
-            match parse_result {
+            rest = match parse_result {
                 Err(nom::Err::Error(_)) => {
                     if conjunction.is_empty() {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many1)));
@@ -260,9 +252,7 @@ impl Parser {
                     return Ok((rest, conjunction));
                 }
                 Err(e) => return Err(e),
-                Ok((new_rest, (operators, (mut is_neg, clause)))) => {
-                    rest = new_rest;
-
+                Ok((rest, (operators, (mut is_neg, clause)))) => {
                     // infinite loop check: the parser must always consume
                     if rest.len() == len {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many0)));
@@ -274,6 +264,7 @@ impl Parser {
                         .for_each(|_| is_neg = !is_neg);
 
                     conjunction.push((is_neg, clause));
+                    rest
                 }
             }
         }
@@ -281,24 +272,23 @@ impl Parser {
 
     pub fn print_tree(&self, node_id: NodeId) {
         let node = self.tree_interner.resolve(node_id);
-        let symbol = Symbol::from_usize(node.value()).expect("failed to make symbol from leaf");
-
         let node_name = self
             .string_interner
-            .resolve(symbol)
+            .resolve(node.symbol)
             .expect("could not find symbol");
 
         let inline_name = match node_name {
-            Self::ADD => Some("+"),
+            Self::ADD => Some(" + "),
+            Self::EQ => Some(" = "),
+            Self::LT => Some(" < "),
+            Self::NEG => Some("-"),
             _ => None,
         };
 
-        match node {
-            Node::Leaf(_) => {
-                eprint!("{node_name}");
-            }
-
-            Node::BinaryOperator(_) => {
+        match node.kind {
+            NodeKind::Variable => eprint!("{{{node_name}}}"),
+            NodeKind::Term => eprint!("{}", inline_name.unwrap_or(node_name)),
+            NodeKind::BinaryOperator => {
                 let left = self.tree_interner.left_child(node_id);
                 let right = self.tree_interner.right_child(node_id);
 
@@ -309,7 +299,7 @@ impl Parser {
                 } else if let Some(inline_name) = inline_name {
                     eprint!("(");
                     self.print_tree(left);
-                    eprint!(" {inline_name} ");
+                    eprint!("{inline_name}");
                     self.print_tree(right);
                 } else {
                     eprint!("{node_name}(");

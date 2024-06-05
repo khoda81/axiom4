@@ -1,3 +1,4 @@
+use crate::lexer::interner::Symbol;
 use std::{
     collections::{hash_map::Entry, HashMap},
     num::NonZeroU64,
@@ -5,60 +6,98 @@ use std::{
 use thiserror::Error;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Node {
-    Leaf(usize),
-    BinaryOperator(usize),
+pub enum NodeKind {
+    Term,
+    Variable,
+    BinaryOperator,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Node {
+    pub kind: NodeKind,
+    pub symbol: Symbol,
 }
 
 impl Node {
-    pub fn value(self) -> usize {
-        match self {
-            Node::Leaf(value) | Node::BinaryOperator(value) => value,
-        }
+    pub fn new(kind: NodeKind, symbol: Symbol) -> Self {
+        Self { kind, symbol }
+    }
+
+    pub fn new_term(symbol: Symbol) -> Self {
+        Self::new(NodeKind::Term, symbol)
+    }
+
+    pub fn new_variable(symbol: Symbol) -> Self {
+        Self::new(NodeKind::Variable, symbol)
+    }
+
+    pub fn new_binary_operator(symbol: Symbol) -> Self {
+        Self::new(NodeKind::BinaryOperator, symbol)
     }
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NodeId(usize);
 
 /// Stores a node in a single u64
 ///
 /// Stores the node kind in the last two bits.
 /// | Last 2 Bits | Node Kind | Supported Range |
 /// |-------------|-----------|-----------------|
-/// | 01          | Reference | 0..2**62        |
-/// | 10          | Leaf      | 0..2**62        |
-/// | 11          | Operator  | 0..2**62        |
+/// | 01xxx..xx   | Operator  | 0..2**62        |
+/// | 10xxx..x0   | Term      | 0..2**61        |
+/// | 10xxx..x1   | Variable  | 0..2**61        |
+/// | 11xxx..xx   | Reference | 0..2**62        |
 ///
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Node64(NonZeroU64);
 
 #[derive(Copy, Clone, Error, Debug)]
-#[error("Node value {0} exceeds the supported range for Node64 (0..2**62)")]
-pub struct OutOfBoundNode64Error(usize);
+pub enum Node64Error {
+    #[error("Symbol exceeds the supported range for a leaf (0..2**61)")]
+    OutOfBoundLeafSymbol(Symbol),
+
+    #[error("Symbol exceeds the supported range for a binary operator (0..2**62)")]
+    OutOfBoundOperatorSymbol(Symbol),
+
+    #[error("NodeId exceeds the supported range for a reference (0..2**62)")]
+    OutOfBoundNodeId(NodeId),
+}
 
 impl Node64 {
     const VALUE_MASK: u64 = u64::MAX >> 2;
     const VALUE_OFFSET: u64 = Self::VALUE_MASK + 1;
 
     #[allow(clippy::identity_op)]
-    const REFERENCE_KIND: u64 = Self::VALUE_OFFSET * 0b01;
-    const LEAF_KIND: u64 = Self::VALUE_OFFSET * 0b10;
-    const OPERATOR_KIND: u64 = Self::VALUE_OFFSET * 0b11;
+    const OPERATOR_MASK: u64 = Self::VALUE_OFFSET * 0b01;
+    const LEAF_MASK: u64 = Self::VALUE_OFFSET * 0b10;
+    const REFERENCE_MASK: u64 = Self::VALUE_OFFSET * 0b11;
 
-    pub fn new(node: Node) -> Result<Self, OutOfBoundNode64Error> {
-        let value = node.value();
-        let kind = match node {
-            Node::Leaf(_) => Self::LEAF_KIND,
-            Node::BinaryOperator(_) => Self::OPERATOR_KIND,
+    pub fn new(node: Node) -> Result<Self, Node64Error> {
+        let symbol_mask = Self::symbol_mask(node)?;
+
+        let mask = match node.kind {
+            NodeKind::BinaryOperator => Self::OPERATOR_MASK | symbol_mask,
+            NodeKind::Variable => Self::LEAF_MASK | ((symbol_mask << 1) + 1),
+            NodeKind::Term => Self::LEAF_MASK | (symbol_mask << 1),
         };
 
-        let mask = kind | Self::value_mask(value)?;
-        let mask = NonZeroU64::new(mask).expect("kind mask should be nonzero");
+        let mask = NonZeroU64::new(mask).expect("node64 mask should be nonzero");
         Ok(Self(mask))
     }
 
-    pub fn new_reference(node_id: NodeId) -> Result<Self, OutOfBoundNode64Error> {
-        let value = node_id.0;
-        let mask = Self::REFERENCE_KIND | Self::value_mask(value)?;
-        let mask = NonZeroU64::new(mask).expect("kind mask should be nonzero");
+    pub fn new_reference(node_id: NodeId) -> Result<Self, Node64Error> {
+        let node_mask: u64 = node_id
+            .0
+            .try_into()
+            .map_err(|_| Node64Error::OutOfBoundNodeId(node_id))?;
+
+        if node_mask >= Self::VALUE_OFFSET {
+            return Err(Node64Error::OutOfBoundNodeId(node_id));
+        }
+
+        let mask = Self::REFERENCE_MASK | node_mask;
+        let mask = NonZeroU64::new(mask).expect("node64 mask should be nonzero");
         Ok(Self(mask))
     }
 
@@ -66,43 +105,66 @@ impl Node64 {
         let value = (self.0.get() & Self::VALUE_MASK) as usize;
         let kind = self.0.get() & !Self::VALUE_MASK;
 
-        if kind == Self::REFERENCE_KIND {
-            Err(NodeId(value))
-        } else if kind == Self::LEAF_KIND {
-            Ok(Node::Leaf(value))
-        } else {
-            Ok(Node::BinaryOperator(value))
+        match kind {
+            Self::REFERENCE_MASK => Err(NodeId(value)),
+            Self::LEAF_MASK => {
+                let kind = match value & 1 {
+                    0 => NodeKind::Term,
+                    _ => NodeKind::Variable,
+                };
+
+                let symbol = Symbol::from_usize(value >> 1).unwrap();
+
+                Ok(Node { kind, symbol })
+            }
+
+            Self::OPERATOR_MASK => Ok(Node {
+                kind: NodeKind::BinaryOperator,
+                symbol: Symbol::from_usize(value).unwrap(),
+            }),
+
+            unexpected_mask => {
+                panic!("unexpected kind_mask={unexpected_mask:x} when converting Node64 to Node")
+            }
         }
     }
 
-    fn value_mask(value: usize) -> Result<u64, OutOfBoundNode64Error> {
-        if value > u64::MAX as usize {
-            return Err(OutOfBoundNode64Error(value));
+    fn symbol_mask(node: Node) -> Result<u64, Node64Error> {
+        let symbol_mask = node.symbol.as_u64();
+
+        match node.kind {
+            NodeKind::BinaryOperator => {
+                if symbol_mask >= Self::VALUE_OFFSET {
+                    return Err(Node64Error::OutOfBoundOperatorSymbol(node.symbol));
+                }
+            }
+
+            NodeKind::Term | NodeKind::Variable => {
+                if symbol_mask >= Self::VALUE_OFFSET >> 1 {
+                    return Err(Node64Error::OutOfBoundLeafSymbol(node.symbol));
+                }
+            }
         }
 
-        let value_u64 = value as u64;
-        if (value_u64 & !Self::VALUE_MASK) != 0 {
-            return Err(OutOfBoundNode64Error(value));
-        }
-
-        Ok(value_u64)
+        Ok(symbol_mask)
     }
 }
 
 impl TryFrom<Node> for Node64 {
-    type Error = OutOfBoundNode64Error;
+    type Error = Node64Error;
 
     fn try_from(node: Node) -> Result<Self, Self::Error> {
         Node64::new(node)
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct NodeId(usize);
+impl TryFrom<Node64> for Node {
+    type Error = NodeId;
 
-#[derive(Copy, Clone, Debug, Error)]
-#[error("Invalid Node ID: {0:?}")]
-struct InvalidNodeId(NodeId);
+    fn try_from(node64: Node64) -> Result<Self, Self::Error> {
+        node64.into_node()
+    }
+}
 
 /// An interner for a binary forest.
 ///
@@ -114,69 +176,66 @@ struct InvalidNodeId(NodeId);
 pub struct TreeInterner {
     nodes: Vec<Node64>,
     // TODO: Try BtreeMap
-    leaf_to_node: HashMap<usize, usize>,
+    variables: HashMap<Symbol, usize>,
     // TODO: Try BtreeMap
-    tree_to_node: HashMap<(usize, NodeId, NodeId), usize>,
+    terms: HashMap<Symbol, usize>,
+    // TODO: Try BtreeMap
+    operators: HashMap<(Symbol, NodeId, NodeId), usize>,
 }
 
 impl TreeInterner {
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
-            leaf_to_node: HashMap::new(),
-            tree_to_node: HashMap::new(),
+            variables: HashMap::new(),
+            terms: HashMap::new(),
+            operators: HashMap::new(),
         }
     }
 
-    pub fn intern_leaf(&mut self, leaf: usize) -> Result<NodeId, OutOfBoundNode64Error> {
-        let node_id = match self.leaf_to_node.entry(leaf) {
-            Entry::Occupied(occupied) => NodeId(*occupied.get()),
-            Entry::Vacant(vacant) => {
-                let node_id = self.nodes.len();
-                let node = Node64::new(Node::Leaf(leaf))?;
-                self.nodes.push(node);
-                NodeId(*vacant.insert(node_id))
-            }
-        };
+    pub fn intern_term(&mut self, term_symbol: Symbol) -> Result<NodeId, Node64Error> {
+        let node = Node::new_term(term_symbol).try_into()?;
+        let node_id = self.terms.entry(term_symbol).or_insert_with(|| {
+            self.nodes.push(node);
+            self.nodes.len() - 1
+        });
 
-        Ok(node_id)
+        Ok(NodeId(*node_id))
+    }
+
+    pub fn intern_variable(&mut self, var_symbol: Symbol) -> Result<NodeId, Node64Error> {
+        let node = Node::new_variable(var_symbol).try_into()?;
+        let node_id = self.variables.entry(var_symbol).or_insert_with(|| {
+            self.nodes.push(node);
+            self.nodes.len() - 1
+        });
+
+        Ok(NodeId(*node_id))
     }
 
     pub fn intern_operator(
         &mut self,
-        operator: usize,
+        operator: Symbol,
         left: NodeId,
         right: NodeId,
-    ) -> Result<NodeId, OutOfBoundNode64Error> {
-        let entry = match self.tree_to_node.entry((operator, left, right)) {
+    ) -> Result<NodeId, Node64Error> {
+        let entry = match self.operators.entry((operator, left, right)) {
             Entry::Occupied(entry) => return Ok(NodeId(*entry.get())),
             Entry::Vacant(entry) => entry,
         };
 
-        let left_node = self
-            .nodes
-            .get(left.0)
-            .ok_or(InvalidNodeId(left))
-            .expect("failed to resolve node ref left (node id is out of bound)");
+        self.nodes[left.0]
+            .into_node()
+            .expect("left node id points to a reference node");
 
-        if left_node.into_node().is_err() {
-            panic!("failed to resolve node ref left (node id points to another reference)");
-        }
-
-        let right_node = self
-            .nodes
-            .get(right.0)
-            .ok_or(InvalidNodeId(right))
-            .expect("failed to resolve node ref right (node id is out of bound)");
-
-        if right_node.into_node().is_err() {
-            panic!("failed to resolve node ref right (node id points to another reference)");
-        }
+        self.nodes[right.0]
+            .into_node()
+            .expect("right node id points to a reference node");
 
         let last_node = self.nodes.len() - 1;
         let left_ref = Node64::new_reference(left)?;
         let right_ref = Node64::new_reference(right)?;
-        let node = Node64::new(Node::BinaryOperator(operator))?;
+        let node = Node::new_binary_operator(operator).try_into()?;
 
         if left.0 == last_node - 1 && right.0 == last_node {
             // Don't push children, last two nodes are children
@@ -207,14 +266,14 @@ impl TreeInterner {
         self.resolve_index(node_id.0 - 2)
     }
 
-    pub fn into_nodes(self) -> Vec<Result<Node, usize>> {
+    pub fn iter_nodes(&self) -> impl Iterator<Item = Result<Node, usize>> + '_ {
         self.nodes
-            .into_iter()
-            .map(|node64| match Node64::into_node(node64) {
+            .iter()
+            .copied()
+            .map(|node64| match node64.into_node() {
                 Ok(node) => Ok(node),
                 Err(NodeId(index)) => Err(index),
             })
-            .collect()
     }
 
     fn resolve_index(&self, node_index: usize) -> NodeId {

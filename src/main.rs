@@ -32,31 +32,38 @@ fn main() {
 
     let (input, _) = parser::utils::eat_newline(input).expect("failed to eat newlines");
 
+    println!();
     println!("{} remaining tokens out of {input_size}", input.len());
+    println!();
+    println!("Tree Interner: ");
 
-    let nodes = parser.tree_interner.into_nodes();
-    for (idx, node) in nodes.iter().enumerate() {
-        match node {
-            Ok(node) => {
-                eprint!("{idx}: ");
+    let nodes: Vec<_> = parser.tree_interner.iter_nodes().collect();
+    for (idx, node) in parser.tree_interner.iter_nodes().enumerate() {
+        eprint!("{idx}: ");
 
-                let symbol = lexer::interner::Symbol::from_usize(node.value())
-                    .expect("failed to make symbol from leaf");
-
-                let node_name = parser
-                    .string_interner
-                    .resolve(symbol)
-                    .expect("could not find symbol");
-
-                match node {
-                    tree::Node::Leaf(_) => eprintln!("leaf({node_name})"),
-                    tree::Node::BinaryOperator(_) => eprintln!("bop({node_name})"),
-                }
+        let node = match node {
+            Ok(node) => node,
+            Err(index) => {
+                eprint!("^{index} -> ");
+                nodes[index].unwrap()
             }
+        };
 
-            Err(index) => eprintln!("{idx}: ^{index}"),
+        let node_name = parser
+            .string_interner
+            .resolve(node.symbol)
+            .expect("could not find symbol");
+
+        match node.kind {
+            tree::NodeKind::Term => eprintln!("term({node_name})"),
+            tree::NodeKind::Variable => eprintln!("var({node_name})"),
+            tree::NodeKind::BinaryOperator => eprintln!("bop({node_name})"),
         }
     }
+
+    println!();
+    println!("String Interner: ");
+    println!("{:?}", parser.string_interner.pool());
 }
 
 pub fn print_tokens(lexer: &mut lexer::Lexer) {
