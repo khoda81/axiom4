@@ -1,3 +1,4 @@
+pub mod cnf;
 pub mod lexer;
 pub mod parser;
 pub mod tree;

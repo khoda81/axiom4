@@ -27,7 +27,7 @@ pub struct StringInterner {
 impl StringInterner {
     pub fn new() -> Self {
         Self {
-            pool: vec![Rc::from("")],
+            pool: Vec::new(),
             reverse_pool: HashMap::new(),
         }
     }
@@ -37,7 +37,7 @@ impl StringInterner {
     }
 
     pub fn resolve(&self, symbol: Symbol) -> Option<&str> {
-        self.pool.get(symbol.0.get() as usize).map(Rc::deref)
+        self.pool.get(symbol.0.get() as usize - 1).map(Rc::deref)
     }
 
     pub fn intern(&mut self, name: &str) -> Symbol {
@@ -45,8 +45,7 @@ impl StringInterner {
             return symbol;
         }
 
-        let symbol_id = NonZeroU32::new(self.pool.len() as u32)
-            .expect("the length of pool should not be 0 or exceed u32::MAX");
+        let symbol_id = NonZeroU32::new(self.pool.len() as u32 + 1).unwrap();
 
         let rc_name: Rc<str> = Rc::from(name);
         self.pool.push(rc_name.clone());
