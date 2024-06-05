@@ -11,7 +11,7 @@ pub enum Node {
 }
 
 impl Node {
-    pub(crate) fn value(self) -> usize {
+    pub fn value(self) -> usize {
         match self {
             Node::Leaf(value) | Node::BinaryOperator(value) => value,
         }
@@ -113,7 +113,9 @@ struct InvalidNodeId(NodeId);
 #[derive(Clone, Debug, Default)]
 pub struct TreeInterner {
     nodes: Vec<Node64>,
+    // TODO: Try BtreeMap
     leaf_to_node: HashMap<usize, usize>,
+    // TODO: Try BtreeMap
     tree_to_node: HashMap<(usize, NodeId, NodeId), usize>,
 }
 
@@ -203,6 +205,16 @@ impl TreeInterner {
 
     pub fn left_child(&self, node_id: NodeId) -> NodeId {
         self.resolve_index(node_id.0 - 2)
+    }
+
+    pub fn into_nodes(self) -> Vec<Result<Node, usize>> {
+        self.nodes
+            .into_iter()
+            .map(|node64| match Node64::into_node(node64) {
+                Ok(node) => Ok(node),
+                Err(NodeId(index)) => Err(index),
+            })
+            .collect()
     }
 
     fn resolve_index(&self, node_index: usize) -> NodeId {

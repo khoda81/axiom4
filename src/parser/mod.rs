@@ -1,5 +1,8 @@
 use crate::{
-    lexer::{StringInterner, Symbol, Token},
+    lexer::{
+        interner::{StringInterner, Symbol},
+        Token,
+    },
     tree::{Node, NodeId, TreeInterner},
 };
 use nom::{
@@ -278,7 +281,7 @@ impl Parser {
 
     pub fn print_tree(&self, node_id: NodeId) {
         let node = self.tree_interner.resolve(node_id);
-        let symbol = Symbol::try_from_usize(node.value()).expect("failed to make symbol from leaf");
+        let symbol = Symbol::from_usize(node.value()).expect("failed to make symbol from leaf");
 
         let node_name = self
             .string_interner

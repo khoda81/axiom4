@@ -1,4 +1,4 @@
-use axiom4::{lexer, parser};
+use axiom4::{lexer, parser, tree};
 use std::{fs::File, io::Read};
 
 fn main() {
@@ -32,11 +32,31 @@ fn main() {
 
     let (input, _) = parser::utils::eat_newline(input).expect("failed to eat newlines");
 
-    println!(
-        "parsed {} tokens out of {}",
-        input_size - input.len(),
-        input_size
-    )
+    println!("{} remaining tokens out of {input_size}", input.len());
+
+    let nodes = parser.tree_interner.into_nodes();
+    for (idx, node) in nodes.iter().enumerate() {
+        match node {
+            Ok(node) => {
+                eprint!("{idx}: ");
+
+                let symbol = lexer::interner::Symbol::from_usize(node.value())
+                    .expect("failed to make symbol from leaf");
+
+                let node_name = parser
+                    .string_interner
+                    .resolve(symbol)
+                    .expect("could not find symbol");
+
+                match node {
+                    tree::Node::Leaf(_) => eprintln!("leaf({node_name})"),
+                    tree::Node::BinaryOperator(_) => eprintln!("bop({node_name})"),
+                }
+            }
+
+            Err(index) => eprintln!("{idx}: ^{index}"),
+        }
+    }
 }
 
 pub fn print_tokens(lexer: &mut lexer::Lexer) {
