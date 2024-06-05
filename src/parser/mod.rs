@@ -79,6 +79,13 @@ impl Parser {
             .expect("failed to intern a binary operator")
     }
 
+    fn make_unary_expression(&mut self, operator: Symbol, inner: NodeId) -> NodeId {
+        let operator_node = self.make_factor(operator);
+        let unary = self.string_interner.intern(Self::UNARY);
+
+        self.make_binary_expression(unary, inner, operator_node)
+    }
+
     pub fn parse_factor<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         if let [Token::Symbol(symbol), rest @ ..] = input {
             let factor = self.make_factor(*symbol);
@@ -94,10 +101,7 @@ impl Parser {
             let (rest, inner_node) = self.parse_factor(rest)?;
 
             let neg = self.string_interner.intern(Self::NEG);
-            let unary = self.string_interner.intern(Self::UNARY);
-
-            let neg_node = self.make_factor(neg);
-            let node_id = self.make_binary_expression(unary, inner_node, neg_node);
+            let node_id = self.make_unary_expression(neg, inner_node);
 
             return Ok((rest, node_id));
         }
@@ -147,10 +151,7 @@ impl Parser {
     pub fn parse_expression<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         let (mut rest, mut expression) = self.parse_term(input)?;
         let neg_symbol = self.string_interner.intern(Self::NEG);
-        let neg_node = self.make_factor(neg_symbol);
-
         let add_symbol = self.string_interner.intern(Self::ADD);
-        let unary_symbol = self.string_interner.intern(Self::UNARY);
 
         loop {
             let parse_operator =
@@ -170,7 +171,7 @@ impl Parser {
 
                     if let Token::Minus = operator {
                         // term <- neg(term)
-                        term = self.make_binary_expression(unary_symbol, term, neg_node);
+                        term = self.make_unary_expression(neg_symbol, term);
                     }
 
                     expression = self.make_binary_expression(add_symbol, expression, term);
