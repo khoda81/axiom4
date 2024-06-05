@@ -25,7 +25,11 @@ impl<T> SectionVec<T> {
         self.items.push(item)
     }
 
-    pub fn find_section(&mut self, index: usize) -> Section {
+    pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
+        self.items.extend(iter)
+    }
+
+    pub fn find_section(&self, index: usize) -> Section {
         match self.sections.binary_search(&index) {
             Ok(index) => Section(index),
             Err(index) => Section(index - 1),
