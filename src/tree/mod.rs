@@ -5,6 +5,8 @@ use std::{
 };
 use thiserror::Error;
 
+pub mod matcher;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum NodeKind {
     Term,
@@ -36,7 +38,7 @@ impl Node {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeId(usize);
 
 /// Stores a node in a single u64
@@ -174,6 +176,7 @@ impl TryFrom<Node64> for Node {
 /// - The last node in the node array is always a non-reference.    
 #[derive(Clone, Debug, Default)]
 pub struct TreeInterner {
+    // TODO: Try Storing kinds separately than values
     nodes: Vec<Node64>,
     // TODO: Try BtreeMap
     variables: HashMap<Symbol, usize>,

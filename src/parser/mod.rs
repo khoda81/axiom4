@@ -311,6 +311,23 @@ impl Parser {
         }
     }
 
+    pub fn parse_cnf<'a>(&mut self, mut input: &'a [Token]) -> IResult<&'a [Token], cnf::CNF> {
+        let mut cnf = cnf::CNF::new();
+        loop {
+            input = match self.parse_conjunction(input) {
+                Err(nom::Err::Error(_)) => break,
+                Err(e) => return Err(e),
+                Ok((rest, conjunction)) => {
+                    cnf.push(conjunction);
+                    rest
+                }
+            }
+        }
+
+        let (input, _) = utils::eat_newline(input)?;
+        Ok((input, cnf))
+    }
+
     pub fn print_tree(&self, node_id: NodeId) {
         let node = self.tree_interner.resolve(node_id);
         let node_name = self

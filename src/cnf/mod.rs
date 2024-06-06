@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::tree::NodeId;
-use section_vec::{Section, SectionVec};
+use section_vec::SectionVec;
 
 pub mod section_vec;
 
@@ -43,6 +43,7 @@ impl ConjunctionVec {
                 self.num_positives += 1;
                 self.clauses.push_front(clause)
             }
+
             Sign::Negative => self.clauses.push_back(clause),
         }
     }
@@ -72,11 +73,6 @@ pub struct ConjunctionRef<'a> {
     pub negatives: &'a [NodeId],
 }
 
-impl ConjunctionRef<'_> {}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct ConjunctionId(Section);
-
 #[derive(Clone, Debug)]
 pub struct CNF {
     positive_clauses: SectionVec<NodeId>,
@@ -92,11 +88,12 @@ impl CNF {
     }
 
     pub fn push(&mut self, mut conjunction: ConjunctionVec) {
-        let pos_section = self.positive_clauses.new_section();
-        let neg_section = self.negative_clauses.new_section();
+        self.positive_clauses.push_section();
+        self.negative_clauses.push_section();
 
         debug_assert_eq!(
-            pos_section, neg_section,
+            self.positive_clauses.section_indices().len(),
+            self.negative_clauses.section_indices().len(),
             "expected positive and negative section count to be equal"
         );
 
@@ -104,30 +101,38 @@ impl CNF {
         self.negative_clauses.extend(conjunction.drain_negatives());
     }
 
-    pub fn find_conjunction(&self, index: usize, sign: Sign) -> ConjunctionId {
-        let section = match sign {
-            Sign::Positive => self.positive_clauses.find_section(index),
-            Sign::Negative => self.negative_clauses.find_section(index),
-        };
-
-        ConjunctionId(section)
+    pub fn find_conjunction(&self, clause_index: usize, sign: Sign) -> usize {
+        match sign {
+            Sign::Positive => self.positive_clauses.section_index(clause_index),
+            Sign::Negative => self.negative_clauses.section_index(clause_index),
+        }
     }
 
-    pub fn conjunction_ref(&self, ConjunctionId(section): ConjunctionId) -> ConjunctionRef {
-        let positives = self
-            .positive_clauses
-            .section(section)
-            .expect("invalid section");
+    pub fn conjunction_ref(&self, conjunction_idx: usize) -> Option<ConjunctionRef> {
+        Some(ConjunctionRef {
+            positives: self.positive_clauses.section_slice(conjunction_idx)?,
+            negatives: self.negative_clauses.section_slice(conjunction_idx)?,
+        })
+    }
 
-        let negatives = self
-            .negative_clauses
-            .section(section)
-            .expect("invalid section");
+    pub fn iter(&self) -> impl Iterator<Item = ConjunctionRef> {
+        let positives = self.positive_clauses.iter_sections();
+        let negatives = self.negative_clauses.iter_sections();
 
-        ConjunctionRef {
-            positives,
-            negatives,
-        }
+        positives
+            .zip(negatives)
+            .map(|(positives, negatives)| ConjunctionRef {
+                positives,
+                negatives,
+            })
+    }
+
+    pub fn positive_clauses(&self) -> &SectionVec<NodeId> {
+        &self.positive_clauses
+    }
+
+    pub fn negative_clauses(&self) -> &SectionVec<NodeId> {
+        &self.negative_clauses
     }
 }
 
