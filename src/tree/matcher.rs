@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
-use super::{NodeId, NodeKind, TreeInterner};
+use super::{interner::TreeInterner, NodeId, NodeKind};
 use crate::lexer::interner::Symbol;
 
 pub mod binding;

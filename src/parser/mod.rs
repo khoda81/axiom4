@@ -4,7 +4,7 @@ use crate::{
         interner::{StringInterner, Symbol},
         Token,
     },
-    tree::{NodeId, NodeKind, TreeInterner},
+    tree::{interner::TreeInterner, NodeId, NodeKind},
 };
 use nom::{
     error::ErrorKind,
