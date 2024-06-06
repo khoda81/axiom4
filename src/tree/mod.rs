@@ -1,12 +1,15 @@
 use crate::lexer::interner::Symbol;
+use interner::ScopeId;
 
 pub mod interner;
 pub mod matcher;
 
+
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum NodeKind {
     Term,
-    Variable,
+    Variable { scope: ScopeId },
     BinaryOperator,
 }
 
@@ -25,8 +28,8 @@ impl Node {
         Self::new(NodeKind::Term, symbol)
     }
 
-    pub fn new_variable(symbol: Symbol) -> Self {
-        Self::new(NodeKind::Variable, symbol)
+    pub fn new_variable(symbol: Symbol, scope: ScopeId) -> Self {
+        Self::new(NodeKind::Variable { scope }, symbol)
     }
 
     pub fn new_binary_operator(symbol: Symbol) -> Self {

@@ -290,6 +290,7 @@ impl Parser {
                         return Err(Err::Error(nom::error::Error::new(rest, ErrorKind::Many1)));
                     }
 
+                    self.tree_interner.push_scope();
                     return Ok((rest, conjunction));
                 }
                 Err(e) => return Err(e),
@@ -344,7 +345,7 @@ impl Parser {
         };
 
         match node.kind {
-            NodeKind::Variable => eprint!("{{{node_name}}}"),
+            NodeKind::Variable { scope } => eprint!("{{{node_name}_{scope}}}"),
             NodeKind::Term => eprint!("{}", inline_name.unwrap_or(node_name)),
             NodeKind::BinaryOperator => {
                 let left = self.tree_interner.left_child(node_id);

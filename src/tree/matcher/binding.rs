@@ -1,5 +1,7 @@
-use crate::{cnf::section_vec::SectionVec, lexer::interner::Symbol};
+use crate::cnf::section_vec::SectionVec;
 use std::collections::{BTreeMap, BTreeSet};
+
+pub(super) type Symbol = usize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Binding {

@@ -5,11 +5,11 @@ pub struct Symbol(NonZeroU32);
 
 impl Symbol {
     pub fn as_usize(self) -> usize {
-        self.0.get() as usize
+        self.0.get().try_into().unwrap()
     }
 
     pub fn as_u64(self) -> u64 {
-        self.0.get() as u64
+        self.0.get().into()
     }
 
     pub fn from_usize(value: usize) -> Option<Self> {

@@ -1,9 +1,8 @@
+use super::{interner::TreeInterner, NodeId};
+use crate::tree::interner::InternalNode;
+use binding::Symbol;
 use std::collections::BTreeMap;
-
 use thiserror::Error;
-
-use super::{interner::TreeInterner, NodeId, NodeKind};
-use crate::lexer::interner::Symbol;
 
 pub mod binding;
 
@@ -28,17 +27,17 @@ impl<'a> Matcher<'a> {
             return Some(self);
         }
 
-        let node_a = self.context.resolve(a);
-        let node_b = self.context.resolve(b);
+        let node_a = self.context.resolve_internal(a);
+        let node_b = self.context.resolve_internal(b);
 
-        use NodeKind::{BinaryOperator as Bop, Term as Trm, Variable as Var};
-        match (node_a.kind, node_b.kind) {
-            (Var, Var) => self.bind(node_a.symbol, node_b.symbol),
-            (Var, _) => self.assign(node_a.symbol, b),
-            (_, Var) => self.assign(node_b.symbol, a),
+        use InternalNode::{BinaryOperator as Bop, Term as Trm, Variable as Var};
+        match (node_a, node_b) {
+            (Var { id: a }, Var { id: b }) => self.bind(a, b),
+            (Var { id }, _) => self.assign(id, b),
+            (_, Var { id }) => self.assign(id, a),
 
-            (Trm, Trm) => (node_a.symbol == node_b.symbol).then_some(self),
-            (Bop, Bop) if node_a.symbol == node_b.symbol => {
+            (Trm(symbol_a), Trm(symbol_b)) => (symbol_a == symbol_b).then_some(self),
+            (Bop(symbol_a), Bop(symbol_b)) if symbol_a == symbol_b => {
                 let a_left = self.context.left_child(a);
                 let b_left = self.context.left_child(b);
 
@@ -49,7 +48,7 @@ impl<'a> Matcher<'a> {
                 self.r#match(a_right, b_right)
             }
 
-            (Trm, Bop) | (Bop, Trm) | (Bop, Bop) => None,
+            _ => None,
         }
     }
 
@@ -126,27 +125,31 @@ impl Match {
             Entry::Vacant(entry) => entry.insert(Err(RecursiveInstance)),
         };
 
-        let node = context.resolve(tree);
-        let instance = match node.kind {
-            NodeKind::Term => tree,
+        let node = context.resolve_internal(tree);
+        let instance = match node {
+            InternalNode::Term(_) => tree,
 
-            NodeKind::Variable => {
-                let root_var = self.bindings.find_root(node.symbol);
+            InternalNode::Variable { id } => {
+                let root_var = self.bindings.find_root(id);
+
                 match self.assignments.get(&root_var) {
                     Some(assignment) => self.instantiate(*assignment, context)?,
-                    // This is a free variable
-                    None => context.intern_variable(root_var).unwrap(),
+                    None => {
+                        // This is a free variable, create a new variable with the same name
+                        let symbol = context.resolve_variable_symbol(id);
+                        context.intern_variable(symbol).unwrap()
+                    }
                 }
             }
 
-            NodeKind::BinaryOperator => {
+            InternalNode::BinaryOperator(symbol) => {
                 let left = context.left_child(tree);
                 let left = self.instantiate(left, context)?;
 
                 let right = context.right_child(tree);
                 let right = self.instantiate(right, context)?;
 
-                context.intern_operator(node.symbol, left, right).unwrap()
+                context.intern_operator(symbol, left, right).unwrap()
             }
         };
 

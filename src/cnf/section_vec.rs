@@ -29,7 +29,7 @@ impl<T> SectionVec<T> {
 
     pub fn section_index(&self, item_index: usize) -> usize {
         self.section_indices
-            .partition_point(|section_end| *section_end > item_index)
+            .partition_point(|section_end| *section_end <= item_index)
     }
 
     pub fn section_slice(&self, section_idx: usize) -> Option<&[T]> {
@@ -55,6 +55,10 @@ impl<T> SectionVec<T> {
 
     pub fn section_indices(&self) -> &[usize] {
         &self.section_indices
+    }
+
+    pub fn current_section(&self) -> usize {
+        self.section_indices.len()
     }
 
     pub fn items(&self) -> &[T] {

@@ -65,18 +65,24 @@ fn main() {
 
     eprintln!();
     eprint!("Bindings: ");
-    for symbol_set in matcher.bindings().into_section_vec().iter_sections() {
+    for variable_set in matcher.bindings().into_section_vec().iter_sections() {
         eprintln!();
-        for &symbol in symbol_set {
+        eprint!("{{ ");
+        for &variable_id in variable_set {
+            let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
+            let scope = parser.tree_interner.resolve_variable_scope(variable_id);
+
             let name = parser.string_interner.resolve(symbol).unwrap();
-            eprint!("{name} ");
+            eprint!("{name}_{scope} ");
         }
+        eprint!("}}");
     }
 
     eprintln!();
     eprint!("Assignments: ");
-    for (&symbol, &tree) in matcher.assignments().iter() {
+    for (&variable_id, &tree) in matcher.assignments().iter() {
         eprintln!();
+        let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
         let name = parser.string_interner.resolve(symbol).unwrap();
         eprint!("{name}: ");
         parser.print_tree(tree);
@@ -107,22 +113,31 @@ fn main() {
         eprint!("{idx}: ");
 
         let node = match node {
-            Ok(node) => node,
             Err(index) => {
                 eprint!("^{index} -> ");
                 nodes[index].unwrap()
             }
+            Ok(node) => node,
+        };
+
+        use crate::tree::interner::InternalNode;
+        let symbol = match node {
+            InternalNode::BinaryOperator(symbol) | InternalNode::Term(symbol) => symbol,
+            InternalNode::Variable { id } => parser.tree_interner.resolve_variable_symbol(id),
         };
 
         let node_name = parser
             .string_interner
-            .resolve(node.symbol)
+            .resolve(symbol)
             .expect("could not find symbol");
 
-        match node.kind {
-            tree::NodeKind::Term => eprintln!("trm({node_name})"),
-            tree::NodeKind::Variable => eprintln!("var({node_name})"),
-            tree::NodeKind::BinaryOperator => eprintln!("bop({node_name})"),
+        match node {
+            InternalNode::Term(_) => eprintln!("trm({node_name})"),
+            InternalNode::BinaryOperator(_) => eprintln!("bop({node_name})"),
+            InternalNode::Variable { id } => {
+                let scope = parser.tree_interner.resolve_variable_scope(id);
+                eprintln!("{{{node_name}_{scope}}}");
+            }
         }
     }
 
