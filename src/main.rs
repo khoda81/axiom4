@@ -16,14 +16,14 @@ fn main() {
     while let Ok((rest, mut conjunction)) = parser.parse_conjunction(input) {
         input = rest;
 
-        for clause in conjunction.drain_positive() {
-            eprint!("| ");
+        for clause in conjunction.drain_negatives() {
+            eprint!("! ");
             parser.print_tree(clause);
             eprint!(" ");
         }
 
-        for clause in conjunction.drain_negatives() {
-            eprint!("! ");
+        for clause in conjunction.drain_positive() {
+            eprint!("| ");
             parser.print_tree(clause);
             eprint!(" ");
         }

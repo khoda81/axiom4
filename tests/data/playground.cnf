@@ -1,4 +1,3 @@
-
 {A} != {B} | {B} = {A}
 {A} != {B} | {B} != {C} | {A} = {C}
 
@@ -20,3 +19,10 @@
 {A} != {B} | {A} = 0 + {B}
 {C} != {D} | (0 + {A}) + {C} = {A} + {D}
 {A} != {B} | {A} + (0 + {C}) = {B} + {C}
+
+! subset_eq({A}, {B}) ! in({X}, {A}) | in({X}, {B})
+| subset_eq({A}, {B}) | in(ext_x({A}, {B}), {A})
+| subset_eq({A}, {B}) ! in(ext_x({A}, {B}), {B})
+
+! in({x}, S_1) | in({x}, S_2)
+! subset_eq(S_1, S_2)

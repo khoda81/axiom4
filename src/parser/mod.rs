@@ -86,10 +86,48 @@ impl Parser {
         self.make_binary_expression(unary, inner, operator_node)
     }
 
+    pub fn parse_unary_function_argument<'a>(
+        &mut self,
+        input: &'a [Token],
+    ) -> IResult<&'a [Token], NodeId> {
+        delimited(
+            utils::take_if(|&t: &Token| t == Token::POpen),
+            |inp| self.parse_expression(inp),
+            utils::take_if(|&t: &Token| t == Token::PClose),
+        )(input)
+    }
+
+    pub fn parse_binary_function_arguments<'a>(
+        &mut self,
+        input: &'a [Token],
+    ) -> IResult<&'a [Token], (NodeId, NodeId)> {
+        let args = |input| {
+            let (input, o1) = self.parse_expression(input)?;
+            let (input, _) = utils::take_if(|&t: &Token| t == Token::Comma)(input)?;
+            self.parse_expression(input).map(|(i, o2)| (i, (o1, o2)))
+        };
+
+        delimited(
+            utils::take_if(|&t: &Token| t == Token::POpen),
+            args,
+            utils::take_if(|&t: &Token| t == Token::PClose),
+        )(input)
+    }
+
     pub fn parse_factor<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         if let [Token::Symbol(symbol), rest @ ..] = input {
-            let factor = self.make_factor(*symbol);
-            return Ok((rest, factor));
+            let result = if let Ok((rest, argument)) = self.parse_unary_function_argument(rest) {
+                // Parse unary function
+                (rest, self.make_unary_expression(*symbol, argument))
+            } else if let Ok((rest, (left, right))) = self.parse_binary_function_arguments(rest) {
+                // Parse binary function
+                (rest, self.make_binary_expression(*symbol, left, right))
+            } else {
+                // NVM, its a normal identifier
+                (rest, self.make_factor(*symbol))
+            };
+
+            return Ok(result);
         }
 
         if let [Token::Other('{'), Token::Symbol(symbol), Token::Other('}'), rest @ ..] = input {
@@ -106,11 +144,7 @@ impl Parser {
             return Ok((rest, node_id));
         }
 
-        delimited(
-            utils::take_if(|&t: &Token| t == Token::POpen),
-            |inp| self.parse_expression(inp),
-            utils::take_if(|&t: &Token| t == Token::PClose),
-        )(input)
+        self.parse_unary_function_argument(input)
     }
 
     pub fn parse_term<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
