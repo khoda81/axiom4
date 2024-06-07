@@ -64,6 +64,10 @@ impl<T> SectionVec<T> {
     pub fn items(&self) -> &[T] {
         &self.items
     }
+
+    pub fn items_mut(&mut self) -> &mut [T] {
+        &mut self.items
+    }
 }
 
 impl<T> Default for SectionVec<T> {

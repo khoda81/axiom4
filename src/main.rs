@@ -3,9 +3,9 @@ use std::{fs::File, io::Read};
 
 fn main() {
     let show_all_clauses = true;
-    let show_remainder = true;
+    let show_remainder = false;
     let show_interned_trees = false;
-    let show_interned_strings = true;
+    let show_interned_strings = false;
 
     let print_variable_scopes = false;
     let cnf_path = "tests/data/playground.cnf";
@@ -23,15 +23,8 @@ fn main() {
     let (rest, cnf) = parser.parse_cnf(input).expect("failed to parse cnf");
 
     for conjunction in cnf.iter() {
-        for &clause in conjunction.negatives {
-            eprint!(" ! {}", parser.print_tree(clause));
-        }
-
-        for &clause in conjunction.positives {
-            eprint!(" | {}", parser.print_tree(clause));
-        }
-
-        eprintln!();
+        let formatter = conjunction.format(&parser.tree_interner, &parser.string_interner);
+        eprintln!("{formatter}");
     }
 
     if show_all_clauses {
@@ -49,8 +42,8 @@ fn main() {
     }
 
     eprintln!();
-    let p_clause_index = 18;
-    let n_clause_index = 15;
+    let p_clause_index = 15;
+    let n_clause_index = 4;
 
     let positive_clause = cnf.positive_clauses()[p_clause_index];
     eprintln!(
@@ -72,13 +65,21 @@ fn main() {
     eprintln!();
     eprintln!("Bindings: ");
     for variable_set in matcher.bindings().into_section_vec().iter_sections() {
+        if variable_set.is_empty() {
+            continue;
+        }
+
         eprint!("{{ ");
         for &variable_id in variable_set {
             let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
-            let scope = parser.tree_interner.resolve_variable_scope(variable_id);
-
             let name = parser.string_interner.resolve(symbol).unwrap();
-            eprint!("{name}_{scope} ");
+
+            if print_variable_scopes {
+                let scope = parser.tree_interner.resolve_variable_scope(variable_id);
+                eprint!("{name}_{scope} ");
+            } else {
+                eprintln!("{{{name}}}");
+            }
         }
         eprintln!("}}");
     }
@@ -92,8 +93,6 @@ fn main() {
 
     let mut r#match = matcher.finish();
 
-    eprintln!();
-    eprintln!("Inferred:");
     let p_conjunction_index = cnf.find_conjunction(p_clause_index, cnf::Sign::Positive);
     let n_conjunction_index = cnf.find_conjunction(n_clause_index, cnf::Sign::Negative);
 
@@ -131,15 +130,14 @@ fn main() {
         .filter(|&clause| clause != instance)
         .for_each(|clause| conclusion.push(cnf::Sign::Positive, clause));
 
-    for clause in conclusion.drain_negatives() {
-        eprint!(" ! {}", parser.print_tree(clause));
-    }
-
-    for clause in conclusion.drain_positives() {
-        eprint!(" | {}", parser.print_tree(clause));
-    }
-
     eprintln!();
+    eprintln!("Conclusion:");
+    eprintln!(
+        "{formatter}",
+        formatter = conclusion
+            .as_conjunction_ref()
+            .format(&parser.tree_interner, &parser.string_interner)
+    );
 
     if show_remainder {
         eprintln!();

@@ -1,5 +1,7 @@
-use super::{Node, NodeId};
-use crate::{cnf::section_vec::SectionVec, lexer::interner::Symbol};
+use crate::{
+    cnf::section_vec::SectionVec,
+    lexer::interner::{StringInterner, Symbol},
+};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Display,
@@ -143,6 +145,103 @@ impl TryFrom<Node64> for InternalNode {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NodeId(usize);
+
+impl NodeId {
+    pub fn format<'a>(
+        &'_ self,
+        tree_interner: &'a TreeInterner,
+        string_interner: &'a StringInterner,
+        print_scopes: bool,
+    ) -> TreeFormatter<'a> {
+        TreeFormatter {
+            node_id: *self,
+            print_scopes,
+            tree_interner,
+            string_interner,
+        }
+    }
+}
+
+#[must_use]
+#[derive(Copy, Clone)]
+pub struct TreeFormatter<'a> {
+    pub node_id: NodeId,
+    pub print_scopes: bool,
+    pub tree_interner: &'a TreeInterner,
+    pub string_interner: &'a StringInterner,
+}
+
+impl Display for TreeFormatter<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.format_node(self.node_id, f)
+    }
+}
+
+impl<'a> TreeFormatter<'a> {
+    fn format_node(
+        &self,
+        node_id: NodeId,
+        f: &mut std::fmt::Formatter,
+    ) -> Result<(), std::fmt::Error> {
+        let node = self.tree_interner.resolve(node_id);
+        let node_name = self
+            .string_interner
+            .resolve(node.symbol)
+            .expect("could not find symbol");
+
+        use crate::parser::Parser;
+
+        let inline_name = match node_name {
+            Parser::ADD => Some(" + "),
+            Parser::EQ => Some(" = "),
+            Parser::LT => Some(" < "),
+            Parser::NEG => Some("-"),
+            _ => None,
+        };
+
+        match node.kind {
+            super::NodeKind::Variable { scope } => {
+                Self::format_variable(node_name, self.print_scopes.then_some(scope), f)
+            }
+
+            super::NodeKind::Term => write!(f, "{}", inline_name.unwrap_or(node_name)),
+            super::NodeKind::BinaryOperator => {
+                let right = Self {
+                    node_id: self.tree_interner.right_child(node_id),
+                    ..*self
+                };
+                let left = Self {
+                    node_id: self.tree_interner.left_child(node_id),
+                    ..*self
+                };
+
+                if node_name == Parser::UNARY {
+                    write!(f, "{right}({left})")
+                } else if let Some(inline_name) = inline_name {
+                    write!(f, "({left}{inline_name}{right})")
+                } else {
+                    write!(f, "{node_name}({left}, {right})")
+                }
+            }
+        }
+    }
+}
+
+impl<'a> TreeFormatter<'a> {
+    fn format_variable(
+        node_name: &str,
+        scope: Option<ScopeId>,
+        f: &mut std::fmt::Formatter,
+    ) -> Result<(), std::fmt::Error> {
+        match scope {
+            Some(scope) => write!(f, "{{{node_name}_{scope}}}"),
+            None => write!(f, "{{{node_name}}}"),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ScopeId(u32);
 
@@ -278,15 +377,15 @@ impl TreeInterner {
             .expect("given node id points to a reference node")
     }
 
-    pub fn resolve(&self, node_id: NodeId) -> Node {
+    pub fn resolve(&self, node_id: NodeId) -> super::Node {
         match self.resolve_internal(node_id) {
-            InternalNode::BinaryOperator(symbol) => Node::new_binary_operator(symbol),
-            InternalNode::Term(symbol) => Node::new_term(symbol),
+            InternalNode::BinaryOperator(symbol) => super::Node::new_binary_operator(symbol),
+            InternalNode::Term(symbol) => super::Node::new_term(symbol),
             InternalNode::Variable { id } => {
                 let symbol = self.resolve_variable_symbol(id);
                 let scope = self.resolve_variable_scope(id);
 
-                Node::new_variable(symbol, scope)
+                super::Node::new_variable(symbol, scope)
             }
         }
     }

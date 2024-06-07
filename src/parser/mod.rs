@@ -1,10 +1,13 @@
 use crate::{
-    cnf::{self, Sign},
+    cnf::{Conjunction, Sign, CNF},
     lexer::{
         interner::{StringInterner, Symbol},
         Token,
     },
-    tree::{interner::TreeInterner, NodeId},
+    tree::{
+        interner::{TreeFormatter, TreeInterner},
+        NodeId,
+    },
 };
 use nom::{
     error::ErrorKind,
@@ -40,15 +43,15 @@ pub struct Parser {
 type Clause = (Sign, NodeId);
 
 impl Parser {
-    const UNARY: &'static str = "unary_operator";
+    pub(crate) const UNARY: &'static str = "unary_operator";
 
-    const ADD: &'static str = "add";
-    const NEG: &'static str = "neg";
-    const MUL: &'static str = "mul";
-    const DIV: &'static str = "div";
+    pub(crate) const ADD: &'static str = "add";
+    pub(crate) const NEG: &'static str = "neg";
+    pub(crate) const MUL: &'static str = "mul";
+    pub(crate) const DIV: &'static str = "div";
 
-    const EQ: &'static str = "equals";
-    const LT: &'static str = "is_less_than";
+    pub(crate) const EQ: &'static str = "equals";
+    pub(crate) const LT: &'static str = "is_less_than";
 
     pub fn new(string_interner: StringInterner) -> Self {
         Self::with_interner(TreeInterner::new(), string_interner)
@@ -262,11 +265,11 @@ impl Parser {
     pub fn parse_conjunction<'a>(
         &mut self,
         input: &'a [Token],
-    ) -> IResult<&'a [Token], cnf::Conjunction> {
+    ) -> IResult<&'a [Token], Conjunction> {
         // Skip all the new line characters
         let (input, _num_lines) = utils::eat_newline(input)?;
 
-        let mut conjunction = cnf::Conjunction::new();
+        let mut conjunction = Conjunction::new();
 
         let mut rest = match self.parse_clause(input) {
             Ok((rest, (sign, clause))) => {
@@ -312,8 +315,8 @@ impl Parser {
         }
     }
 
-    pub fn parse_cnf<'a>(&mut self, mut input: &'a [Token]) -> IResult<&'a [Token], cnf::CNF> {
-        let mut cnf = cnf::CNF::new();
+    pub fn parse_cnf<'a>(&mut self, mut input: &'a [Token]) -> IResult<&'a [Token], CNF> {
+        let mut cnf = CNF::new();
         loop {
             input = match self.parse_conjunction(input) {
                 Err(nom::Err::Error(_)) => break,
@@ -329,8 +332,8 @@ impl Parser {
         Ok((input, cnf))
     }
 
-    pub fn print_tree(&self, node_id: NodeId) -> utils::PrintTree {
-        utils::PrintTree {
+    pub fn print_tree(&self, node_id: NodeId) -> TreeFormatter {
+        TreeFormatter {
             node_id,
             print_scopes: false,
             tree_interner: &self.tree_interner,

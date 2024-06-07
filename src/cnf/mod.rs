@@ -1,76 +1,9 @@
 use crate::tree::NodeId;
+pub use conjunction::{Conjunction, ConjunctionRef, Sign};
 use section_vec::SectionVec;
-use std::collections::VecDeque;
 
+mod conjunction;
 pub mod section_vec;
-
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub enum Sign {
-    #[default]
-    Positive,
-    Negative,
-}
-
-impl std::ops::Not for Sign {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        match self {
-            Sign::Positive => Sign::Negative,
-            Sign::Negative => Sign::Positive,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Conjunction {
-    clauses: VecDeque<NodeId>,
-    num_positives: usize,
-}
-
-impl Conjunction {
-    pub fn new() -> Self {
-        Self {
-            clauses: VecDeque::new(),
-            num_positives: 0,
-        }
-    }
-
-    pub fn push(&mut self, sign: Sign, clause: NodeId) {
-        match sign {
-            Sign::Positive => {
-                self.num_positives += 1;
-                self.clauses.push_front(clause)
-            }
-
-            Sign::Negative => self.clauses.push_back(clause),
-        }
-    }
-
-    pub fn drain_positives(&mut self) -> impl Iterator<Item = NodeId> + '_ {
-        let num_positives = self.num_positives;
-        self.num_positives = 0;
-        self.clauses.drain(..num_positives)
-    }
-
-    pub fn drain_negatives(&mut self) -> impl Iterator<Item = NodeId> + '_ {
-        self.clauses.drain(self.num_positives..)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.clauses.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.clauses.len()
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ConjunctionRef<'a> {
-    pub positives: &'a [NodeId],
-    pub negatives: &'a [NodeId],
-}
 
 #[derive(Clone, Debug)]
 pub struct CNF {
@@ -86,7 +19,7 @@ impl CNF {
         }
     }
 
-    pub fn push(&mut self, mut conjunction: Conjunction) {
+    pub fn push(&mut self, conjunction: Conjunction) {
         self.positive_clauses.push_section();
         self.negative_clauses.push_section();
 
@@ -96,8 +29,10 @@ impl CNF {
             "expected positive and negative section count to be equal"
         );
 
-        self.positive_clauses.extend(conjunction.drain_positives());
-        self.negative_clauses.extend(conjunction.drain_negatives());
+        self.positive_clauses
+            .extend(conjunction.iter(Sign::Positive).copied());
+        self.negative_clauses
+            .extend(conjunction.iter(Sign::Negative).copied());
     }
 
     pub fn find_conjunction(&self, clause_index: usize, sign: Sign) -> usize {

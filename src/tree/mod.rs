@@ -1,5 +1,5 @@
-use crate::lexer::interner::Symbol;
-use interner::ScopeId;
+use crate::{lexer::interner::Symbol, tree::interner::ScopeId};
+pub use interner::NodeId;
 
 pub mod interner;
 pub mod matcher;
@@ -34,6 +34,3 @@ impl Node {
         Self::new(NodeKind::BinaryOperator, symbol)
     }
 }
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NodeId(usize);
