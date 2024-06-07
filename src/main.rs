@@ -1,8 +1,17 @@
-use axiom4::{lexer, parser, tree};
+use axiom4::{
+    cnf::{self, Conjunction, Sign},
+    lexer, parser, tree,
+};
 use std::{fs::File, io::Read};
 
 fn main() {
-    let mut file = File::open("tests/data/playground.cnf").expect("failed to open file");
+    let show_all_clauses = true;
+    let show_remainder = true;
+    let show_interned_trees = false;
+    let show_interned_strings = true;
+    let cnf_path = "tests/data/playground.cnf";
+
+    let mut file = File::open(cnf_path).expect("failed to open file");
     let mut buf = String::new();
     file.read_to_string(&mut buf).expect("failed to read file");
 
@@ -28,33 +37,35 @@ fn main() {
         eprintln!();
     }
 
-    eprintln!();
-    eprintln!("Positives: ");
-    for (idx, &clause) in cnf.positive_clauses().items().iter().enumerate() {
-        eprint!("{idx}: ");
-        parser.print_tree(clause);
+    if show_all_clauses {
         eprintln!();
+        eprintln!("Positives: ");
+        for (idx, &clause) in cnf.positive_clauses().iter().enumerate() {
+            eprint!("{idx}: ");
+            parser.print_tree(clause);
+            eprintln!();
+        }
+
+        eprintln!();
+        eprintln!("Negatives: ");
+        for (idx, &clause) in cnf.negative_clauses().iter().enumerate() {
+            eprint!("{idx}: ");
+            parser.print_tree(clause);
+            eprintln!();
+        }
     }
 
     eprintln!();
-    eprintln!("Negatives: ");
-    for (idx, &clause) in cnf.negative_clauses().items().iter().enumerate() {
-        eprint!("{idx}: ");
-        parser.print_tree(clause);
-        eprintln!();
-    }
+    let p_clause_index = 18;
+    let n_clause_index = 15;
 
-    eprintln!();
-    let positive_idx = 19;
-    let negative_idx = 10;
-
-    let positive_clause = cnf.positive_clauses().items()[positive_idx];
-    eprint!("Positive[{positive_idx}]: ");
+    let positive_clause = cnf.positive_clauses()[p_clause_index];
+    eprint!("Positive[{p_clause_index}]: ");
     parser.print_tree(positive_clause);
     eprintln!();
 
-    let negative_clause = cnf.negative_clauses().items()[negative_idx];
-    eprint!("Negative[{negative_idx}]: ");
+    let negative_clause = cnf.negative_clauses()[n_clause_index];
+    eprint!("Negative[{n_clause_index}]: ");
     parser.print_tree(negative_clause);
     eprintln!();
 
@@ -89,61 +100,108 @@ fn main() {
     }
     eprintln!();
 
-    eprintln!();
     let mut r#match = matcher.finish();
 
-    let positive_instance = r#match.instantiate(positive_clause, &mut parser.tree_interner);
-    eprint!("positive: ");
-    parser.print_tree(positive_instance.unwrap());
+    eprintln!();
+    eprint!("Inferred:");
+    eprintln!();
+    let p_conjunction_index = cnf.find_conjunction(p_clause_index, cnf::Sign::Positive);
+    let n_conjunction_index = cnf.find_conjunction(n_clause_index, cnf::Sign::Negative);
+
+    let p_conjunction_ref = cnf.conjunction_ref(p_conjunction_index).unwrap();
+    let n_conjunction_ref = cnf.conjunction_ref(n_conjunction_index).unwrap();
+
+    let selected_tree = cnf.positive_clauses()[p_clause_index];
+    let instance = r#match
+        .instantiate(selected_tree, &mut parser.tree_interner)
+        .unwrap();
+
+    let mut conclusion = Conjunction::new();
+
+    p_conjunction_ref
+        .negatives
+        .iter()
+        .chain(n_conjunction_ref.negatives)
+        .map(|&clause| {
+            r#match
+                .instantiate(clause, &mut parser.tree_interner)
+                .unwrap()
+        })
+        .filter(|&clause| clause != instance)
+        .for_each(|clause| conclusion.push(Sign::Negative, clause));
+
+    p_conjunction_ref
+        .positives
+        .iter()
+        .chain(n_conjunction_ref.positives)
+        .map(|&clause| {
+            r#match
+                .instantiate(clause, &mut parser.tree_interner)
+                .unwrap()
+        })
+        .filter(|&clause| clause != instance)
+        .for_each(|clause| conclusion.push(Sign::Positive, clause));
+
+    for clause in conclusion.drain_negatives() {
+        eprint!(" ! ");
+        parser.print_tree(clause);
+    }
+
+    for clause in conclusion.drain_positives() {
+        eprint!(" | ");
+        parser.print_tree(clause);
+    }
+
     eprintln!();
 
-    let negative_instance = r#match.instantiate(negative_clause, &mut parser.tree_interner);
-    eprint!("negative: ");
-    parser.print_tree(negative_instance.unwrap());
-    eprintln!();
+    if show_remainder {
+        eprintln!();
+        eprintln!("Remainder: {}/{} Tokens", rest.len(), input.len());
+        print_tokens(rest.iter().copied(), &parser.string_interner);
+    }
 
-    eprintln!();
-    eprintln!("Remainder: {}/{} Tokens", rest.len(), input.len());
-    print_tokens(rest.iter().copied(), &parser.string_interner);
+    if show_interned_trees {
+        eprintln!();
+        eprintln!("Interned Trees: ");
+        let nodes: Vec<_> = parser.tree_interner.iter_nodes().collect();
+        for (idx, node) in parser.tree_interner.iter_nodes().enumerate() {
+            eprint!("{idx}: ");
 
-    eprintln!();
-    eprintln!("Interned Trees: ");
-    let nodes: Vec<_> = parser.tree_interner.iter_nodes().collect();
-    for (idx, node) in parser.tree_interner.iter_nodes().enumerate() {
-        eprint!("{idx}: ");
+            let node = match node {
+                Err(index) => {
+                    eprint!("^{index} -> ");
+                    nodes[index].unwrap()
+                }
+                Ok(node) => node,
+            };
 
-        let node = match node {
-            Err(index) => {
-                eprint!("^{index} -> ");
-                nodes[index].unwrap()
-            }
-            Ok(node) => node,
-        };
+            use crate::tree::interner::InternalNode;
+            let symbol = match node {
+                InternalNode::BinaryOperator(symbol) | InternalNode::Term(symbol) => symbol,
+                InternalNode::Variable { id } => parser.tree_interner.resolve_variable_symbol(id),
+            };
 
-        use crate::tree::interner::InternalNode;
-        let symbol = match node {
-            InternalNode::BinaryOperator(symbol) | InternalNode::Term(symbol) => symbol,
-            InternalNode::Variable { id } => parser.tree_interner.resolve_variable_symbol(id),
-        };
+            let node_name = parser
+                .string_interner
+                .resolve(symbol)
+                .expect("could not find symbol");
 
-        let node_name = parser
-            .string_interner
-            .resolve(symbol)
-            .expect("could not find symbol");
-
-        match node {
-            InternalNode::Term(_) => eprintln!("trm({node_name})"),
-            InternalNode::BinaryOperator(_) => eprintln!("bop({node_name})"),
-            InternalNode::Variable { id } => {
-                let scope = parser.tree_interner.resolve_variable_scope(id);
-                eprintln!("{{{node_name}_{scope}}}");
+            match node {
+                InternalNode::Term(_) => eprintln!("trm({node_name})"),
+                InternalNode::BinaryOperator(_) => eprintln!("bop({node_name})"),
+                InternalNode::Variable { id } => {
+                    let scope = parser.tree_interner.resolve_variable_scope(id);
+                    eprintln!("{{{node_name}_{scope}}}");
+                }
             }
         }
     }
 
-    eprintln!();
-    eprintln!("Interned Strings: ");
-    eprintln!("{:?}", parser.string_interner.pool());
+    if show_interned_strings {
+        eprintln!();
+        eprintln!("Interned Strings: ");
+        eprintln!("{:?}", parser.string_interner.pool());
+    }
 }
 
 pub fn print_tokens(

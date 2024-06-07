@@ -1,7 +1,6 @@
-use std::collections::VecDeque;
-
 use crate::tree::NodeId;
 use section_vec::SectionVec;
+use std::collections::VecDeque;
 
 pub mod section_vec;
 
@@ -24,12 +23,12 @@ impl std::ops::Not for Sign {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ConjunctionVec {
+pub struct Conjunction {
     clauses: VecDeque<NodeId>,
     num_positives: usize,
 }
 
-impl ConjunctionVec {
+impl Conjunction {
     pub fn new() -> Self {
         Self {
             clauses: VecDeque::new(),
@@ -48,7 +47,7 @@ impl ConjunctionVec {
         }
     }
 
-    pub fn drain_positive(&mut self) -> impl Iterator<Item = NodeId> + '_ {
+    pub fn drain_positives(&mut self) -> impl Iterator<Item = NodeId> + '_ {
         let num_positives = self.num_positives;
         self.num_positives = 0;
         self.clauses.drain(..num_positives)
@@ -87,7 +86,7 @@ impl CNF {
         }
     }
 
-    pub fn push(&mut self, mut conjunction: ConjunctionVec) {
+    pub fn push(&mut self, mut conjunction: Conjunction) {
         self.positive_clauses.push_section();
         self.negative_clauses.push_section();
 
@@ -97,7 +96,7 @@ impl CNF {
             "expected positive and negative section count to be equal"
         );
 
-        self.positive_clauses.extend(conjunction.drain_positive());
+        self.positive_clauses.extend(conjunction.drain_positives());
         self.negative_clauses.extend(conjunction.drain_negatives());
     }
 
@@ -108,10 +107,10 @@ impl CNF {
         }
     }
 
-    pub fn conjunction_ref(&self, conjunction_idx: usize) -> Option<ConjunctionRef> {
+    pub fn conjunction_ref(&self, conjunction_index: usize) -> Option<ConjunctionRef> {
         Some(ConjunctionRef {
-            positives: self.positive_clauses.section_slice(conjunction_idx)?,
-            negatives: self.negative_clauses.section_slice(conjunction_idx)?,
+            positives: self.positive_clauses.section_slice(conjunction_index)?,
+            negatives: self.negative_clauses.section_slice(conjunction_index)?,
         })
     }
 
@@ -127,12 +126,12 @@ impl CNF {
             })
     }
 
-    pub fn positive_clauses(&self) -> &SectionVec<NodeId> {
-        &self.positive_clauses
+    pub fn positive_clauses(&self) -> &[NodeId] {
+        self.positive_clauses.items()
     }
 
-    pub fn negative_clauses(&self) -> &SectionVec<NodeId> {
-        &self.negative_clauses
+    pub fn negative_clauses(&self) -> &[NodeId] {
+        self.negative_clauses.items()
     }
 }
 

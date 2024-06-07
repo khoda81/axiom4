@@ -262,11 +262,11 @@ impl Parser {
     pub fn parse_conjunction<'a>(
         &mut self,
         input: &'a [Token],
-    ) -> IResult<&'a [Token], cnf::ConjunctionVec> {
+    ) -> IResult<&'a [Token], cnf::Conjunction> {
         // Skip all the new line characters
         let (input, _num_lines) = utils::eat_newline(input)?;
 
-        let mut conjunction = cnf::ConjunctionVec::new();
+        let mut conjunction = cnf::Conjunction::new();
 
         let mut rest = match self.parse_clause(input) {
             Ok((rest, (sign, clause))) => {

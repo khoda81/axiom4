@@ -27,3 +27,5 @@
 
 ! in({x}, S_1) | in({x}, S_2)
 ! subset_eq(S_1, S_2)
+
+! in({X}, null_set)
