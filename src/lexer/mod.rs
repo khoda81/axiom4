@@ -8,11 +8,12 @@ pub enum Token {
     Other(char),
     Comma,
     Colon,
-    NewLine,
-    SemiColon,
+    Semicolon,
 
-    POpen,
-    PClose,
+    OpenParen,
+    CloseParen,
+    OpenBrace,
+    CloseBrace,
 
     Bar,
     Bang,
@@ -28,6 +29,7 @@ pub enum Token {
     LEq,
     Gt,
     GEq,
+    RightArrow,
 }
 
 #[derive(Clone, Debug)]
@@ -48,16 +50,24 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn handle_single_char_token(next_char: char) -> Option<Token> {
+    fn handle_single_char_token(&mut self, next_char: char) -> Option<Token> {
         let token = match next_char {
             ':' => Token::Colon,
-            ';' => Token::SemiColon,
+            ';' => Token::Semicolon,
             ',' => Token::Comma,
-            '(' => Token::POpen,
-            ')' => Token::PClose,
+            '(' => Token::OpenParen,
+            ')' => Token::CloseParen,
+            '{' => Token::OpenBrace,
+            '}' => Token::CloseBrace,
             '|' => Token::Bar,
-            '\n' => Token::NewLine,
-            '=' => Token::Eq,
+            '=' => {
+                if self.cursor.clone().next() == Some('>') {
+                    self.cursor.next();
+                    Token::RightArrow
+                } else {
+                    Token::Eq
+                }
+            }
 
             '+' => Token::Plus,
             '-' => Token::Minus,
@@ -76,15 +86,12 @@ impl<'a> Iterator for Lexer<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // Skip whitespace
-        let text = self
-            .cursor
-            .as_str()
-            .trim_start_matches(|c: char| c.is_whitespace() && c != '\n');
+        let text = self.cursor.as_str().trim_start();
 
         self.cursor = text.chars();
 
         let next_char = self.cursor.next()?;
-        if let Some(token) = Self::handle_single_char_token(next_char) {
+        if let Some(token) = self.handle_single_char_token(next_char) {
             return Some(token);
         }
 

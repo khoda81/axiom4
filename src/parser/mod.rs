@@ -102,11 +102,9 @@ impl Parser {
         &mut self,
         input: &'a [Token],
     ) -> IResult<&'a [Token], NodeId> {
-        delimited(
-            utils::take_if(|&t: &Token| t == Token::POpen),
-            |inp| self.parse_expression(inp),
-            utils::take_if(|&t: &Token| t == Token::PClose),
-        )(input)
+        let open_paren = utils::take_if(|&t: &Token| t == Token::OpenParen);
+        let close_paren = utils::take_if(|&t: &Token| t == Token::CloseParen);
+        delimited(open_paren, |inp| self.parse_expression(inp), close_paren)(input)
     }
 
     pub fn parse_binary_function_arguments<'a>(
@@ -119,11 +117,9 @@ impl Parser {
             self.parse_expression(input).map(|(i, o2)| (i, (o1, o2)))
         };
 
-        delimited(
-            utils::take_if(|&t: &Token| t == Token::POpen),
-            args,
-            utils::take_if(|&t: &Token| t == Token::PClose),
-        )(input)
+        let open_paren = utils::take_if(|&t: &Token| t == Token::OpenParen);
+        let close_paren = utils::take_if(|&t: &Token| t == Token::CloseParen);
+        delimited(open_paren, args, close_paren)(input)
     }
 
     pub fn parse_factor<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
@@ -142,7 +138,7 @@ impl Parser {
             return Ok(result);
         }
 
-        if let [Token::Other('{'), Token::Symbol(symbol), Token::Other('}'), rest @ ..] = input {
+        if let [Token::OpenBrace, Token::Symbol(symbol), Token::CloseBrace, rest @ ..] = input {
             let variable = self.make_variable(*symbol);
             return Ok((rest, variable));
         }
@@ -276,7 +272,7 @@ impl Parser {
         input: &'a [Token],
     ) -> IResult<&'a [Token], Conjunction> {
         // Skip all the new line characters
-        let (input, _num_lines) = utils::eat_newline(input)?;
+        let (input, _num_lines) = utils::eat_semicolon(input)?;
 
         let mut conjunction = Conjunction::new();
 
@@ -337,7 +333,7 @@ impl Parser {
             }
         }
 
-        let (input, _) = utils::eat_newline(input)?;
+        let (input, _) = utils::eat_semicolon(input)?;
         Ok((input, cnf))
     }
 

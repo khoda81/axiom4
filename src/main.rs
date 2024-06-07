@@ -3,7 +3,7 @@ use std::{fs::File, io::Read};
 
 fn main() {
     let show_all_clauses = true;
-    let show_remainder = false;
+    let show_remainder = true;
     let show_interned_trees = false;
     let show_interned_strings = false;
 
@@ -25,6 +25,12 @@ fn main() {
     for conjunction in cnf.iter() {
         let formatter = conjunction.format(&parser.tree_interner, &parser.string_interner);
         eprintln!("{formatter}");
+    }
+
+    if show_remainder {
+        eprintln!();
+        eprintln!("Remainder: {}/{} Tokens", rest.len(), input.len());
+        print_tokens(rest.iter().copied(), &parser.string_interner);
     }
 
     if show_all_clauses {
@@ -139,12 +145,6 @@ fn main() {
             .format(&parser.tree_interner, &parser.string_interner)
     );
 
-    if show_remainder {
-        eprintln!();
-        eprintln!("Remainder: {}/{} Tokens", rest.len(), input.len());
-        print_tokens(rest.iter().copied(), &parser.string_interner);
-    }
-
     if show_interned_trees {
         eprintln!();
         eprintln!("Interned Trees: ");
@@ -203,7 +203,6 @@ pub fn print_tokens(
                 eprint!("{symbol_name:?} ");
             }
 
-            lexer::Token::NewLine => eprintln!("{token:?}"),
             token => eprint!("{token:?} "),
         }
     }
