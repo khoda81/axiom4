@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, fmt::Display};
+use std::{
+    collections::VecDeque,
+    fmt::{Display, Write},
+};
 
 use crate::{
     lexer::interner::StringInterner,
@@ -100,6 +103,15 @@ pub struct ConjunctionRef<'a> {
 }
 
 impl<'a> ConjunctionRef<'a> {
+    pub const UNSAT: ConjunctionRef<'static> = ConjunctionRef {
+        negatives: &[],
+        positives: &[],
+    };
+
+    pub fn is_unsat(&self) -> bool {
+        self.positives.is_empty() && self.negatives.is_empty()
+    }
+
     pub fn format(
         &'_ self,
         tree_interner: &'a TreeInterner,
@@ -134,7 +146,7 @@ impl Display for ConjunctionFormatter<'_> {
             self.format_positives(f)?;
         }
 
-        Ok(())
+        f.write_char(';')
     }
 }
 

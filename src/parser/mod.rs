@@ -331,7 +331,7 @@ impl Parser {
                 Err(nom::Err::Error(_)) => break,
                 Err(e) => return Err(e),
                 Ok((rest, conjunction)) => {
-                    cnf.push(conjunction);
+                    cnf.assert(conjunction);
                     rest
                 }
             }

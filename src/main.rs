@@ -78,7 +78,7 @@ fn main() {
                 let scope = parser.tree_interner.resolve_variable_scope(variable_id);
                 eprint!("{name}_{scope} ");
             } else {
-                eprintln!("{{{name}}}");
+                eprint!("{name} ");
             }
         }
         eprintln!("}}");

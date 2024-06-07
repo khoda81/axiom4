@@ -19,7 +19,7 @@ impl CNF {
         }
     }
 
-    pub fn push(&mut self, conjunction: Conjunction) {
+    pub fn assert(&mut self, conjunction: Conjunction) {
         self.positive_clauses.push_section();
         self.negative_clauses.push_section();
 
@@ -55,6 +55,7 @@ impl CNF {
 
         positives
             .zip(negatives)
+            .skip(1)
             .map(|(positives, negatives)| ConjunctionRef {
                 positives,
                 negatives,

@@ -2,11 +2,7 @@ use crate::{
     cnf::section_vec::SectionVec,
     lexer::interner::{StringInterner, Symbol},
 };
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    fmt::Display,
-    num::NonZeroU64,
-};
+use std::{collections::HashMap, fmt::Display, num::NonZeroU64};
 use thiserror::Error;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -278,12 +274,12 @@ pub struct TreeInterner {
     // TODO: Try Storing kinds separately than values
     nodes: Vec<Node64>,
     // TODO: Try BtreeMap
-    variables: HashMap<(Symbol, ScopeId), usize>,
+    variables: HashMap<(Symbol, ScopeId), NodeId>,
     scopes: SectionVec<Symbol>,
     // TODO: Try BtreeMap
-    terms: HashMap<Symbol, usize>,
+    terms: HashMap<Symbol, NodeId>,
     // TODO: Try BtreeMap
-    operators: HashMap<(Symbol, NodeId, NodeId), usize>,
+    operators: HashMap<(Symbol, NodeId, NodeId), NodeId>,
 }
 
 impl TreeInterner {
@@ -301,10 +297,10 @@ impl TreeInterner {
         let node = InternalNode::Term(term_symbol).try_into()?;
         let node_id = self.terms.entry(term_symbol).or_insert_with(|| {
             self.nodes.push(node);
-            self.nodes.len() - 1
+            NodeId(self.nodes.len() - 1)
         });
 
-        Ok(NodeId(*node_id))
+        Ok(*node_id)
     }
 
     pub fn intern_variable(&mut self, var_symbol: Symbol) -> Result<NodeId, Node64Error> {
@@ -318,10 +314,10 @@ impl TreeInterner {
             .or_insert_with(|| {
                 self.scopes.push(var_symbol);
                 self.nodes.push(node);
-                self.nodes.len() - 1
+                NodeId(self.nodes.len() - 1)
             });
 
-        Ok(NodeId(*node_id))
+        Ok(*node_id)
     }
 
     pub fn intern_variable_with_scope(
@@ -329,10 +325,7 @@ impl TreeInterner {
         var_symbol: Symbol,
         scope: ScopeId,
     ) -> Option<NodeId> {
-        self.variables
-            .get(&(var_symbol, scope))
-            .copied()
-            .map(NodeId)
+        self.variables.get(&(var_symbol, scope)).copied()
     }
 
     pub fn push_scope(&mut self) {
@@ -362,20 +355,25 @@ impl TreeInterner {
             self.resolve(right);
         }
 
-        let entry = match self.operators.entry((operator, left, right)) {
-            Entry::Occupied(entry) => return Ok(NodeId(*entry.get())),
-            Entry::Vacant(entry) => entry,
+        // TODO: this can be optimized by keeping the entry and inserting at the end
+        let key = (operator, left, right);
+        if let Some(entry) = self.operators.get(&key) {
+            return Ok(*entry);
         };
 
-        let last_node = self.nodes.len() - 1;
+        let current_node = NodeId(self.nodes.len());
+        let next_node = NodeId(self.nodes.len().wrapping_add(1));
+
         let left_ref = Node64::new_reference(left)?;
         let right_ref = Node64::new_reference(right)?;
         let node = InternalNode::BinaryOperator(operator).try_into()?;
 
-        if left.0 == last_node - 1 && right.0 == last_node {
+        if left.0 == Self::left_child_index(current_node)
+            && right.0 == Self::right_child_index(current_node)
+        {
             // Don't push children, last two nodes are children
             self.nodes.extend([node]);
-        } else if left.0 == last_node {
+        } else if left.0 == Self::left_child_index(next_node) {
             // Only push right, left child is in place
             self.nodes.extend([right_ref, node]);
         } else {
@@ -383,8 +381,9 @@ impl TreeInterner {
             self.nodes.extend([left_ref, right_ref, node]);
         }
 
-        let node_id = self.nodes.len() - 1;
-        Ok(NodeId(*entry.insert(node_id)))
+        let node_id = NodeId(self.nodes.len() - 1);
+        self.operators.insert(key, node_id);
+        Ok(node_id)
     }
 
     pub fn resolve_internal(&self, node_id: NodeId) -> InternalNode {
@@ -415,11 +414,19 @@ impl TreeInterner {
     }
 
     pub fn right_child(&self, node_id: NodeId) -> NodeId {
-        self.resolve_index(node_id.0 - 1)
+        self.resolve_index(Self::left_child_index(node_id))
     }
 
     pub fn left_child(&self, node_id: NodeId) -> NodeId {
-        self.resolve_index(node_id.0 - 2)
+        self.resolve_index(Self::right_child_index(node_id))
+    }
+
+    fn left_child_index(node_id: NodeId) -> usize {
+        node_id.0.wrapping_sub(1)
+    }
+
+    fn right_child_index(node_id: NodeId) -> usize {
+        node_id.0.wrapping_sub(2)
     }
 
     pub fn iter_nodes(&self) -> impl Iterator<Item = Result<InternalNode, NodeId>> + '_ {

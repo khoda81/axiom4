@@ -1,6 +1,3 @@
-// #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-// pub struct Section(pub usize);
-
 #[derive(Clone, Debug)]
 pub struct SectionVec<T> {
     items: Vec<T>,
@@ -32,21 +29,24 @@ impl<T> SectionVec<T> {
             .partition_point(|section_end| *section_end <= item_index)
     }
 
-    pub fn section_slice(&self, section_idx: usize) -> Option<&[T]> {
+    pub fn section_range(&self, section_idx: usize) -> Option<std::ops::Range<usize>> {
         let start = match section_idx.checked_sub(1) {
             None => 0,
-            Some(start_index) => match self.section_indices.get(start_index) {
-                None => return None,
-                Some(&start) => start,
-            },
+            Some(previous) => *self.section_indices.get(previous)?,
         };
 
-        let &end = self
-            .section_indices
-            .get(section_idx)
-            .unwrap_or(&self.items.len());
+        let end = self.section_indices.get(section_idx).copied();
+        Some(start..end.unwrap_or(self.items.len()))
+    }
 
-        Some(&self.items[start..end])
+    pub fn section_slice(&self, section_idx: usize) -> Option<&[T]> {
+        let range = self.section_range(section_idx)?;
+        Some(&self.items[range])
+    }
+
+    pub fn section_mut_slice(&mut self, section_idx: usize) -> Option<&mut [T]> {
+        let range = self.section_range(section_idx)?;
+        Some(&mut self.items[range])
     }
 
     pub fn iter_sections(&self) -> impl Iterator<Item = &[T]> {
