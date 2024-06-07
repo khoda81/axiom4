@@ -4,8 +4,6 @@ use interner::ScopeId;
 pub mod interner;
 pub mod matcher;
 
-
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum NodeKind {
     Term,

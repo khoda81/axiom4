@@ -4,7 +4,7 @@ use crate::{
         interner::{StringInterner, Symbol},
         Token,
     },
-    tree::{interner::TreeInterner, NodeId, NodeKind},
+    tree::{interner::TreeInterner, NodeId},
 };
 use nom::{
     error::ErrorKind,
@@ -329,46 +329,12 @@ impl Parser {
         Ok((input, cnf))
     }
 
-    pub fn print_tree(&self, node_id: NodeId) {
-        let node = self.tree_interner.resolve(node_id);
-        let node_name = self
-            .string_interner
-            .resolve(node.symbol)
-            .expect("could not find symbol");
-
-        let inline_name = match node_name {
-            Self::ADD => Some(" + "),
-            Self::EQ => Some(" = "),
-            Self::LT => Some(" < "),
-            Self::NEG => Some("-"),
-            _ => None,
-        };
-
-        match node.kind {
-            NodeKind::Variable { scope } => eprint!("{{{node_name}_{scope}}}"),
-            NodeKind::Term => eprint!("{}", inline_name.unwrap_or(node_name)),
-            NodeKind::BinaryOperator => {
-                let left = self.tree_interner.left_child(node_id);
-                let right = self.tree_interner.right_child(node_id);
-
-                if node_name == Self::UNARY {
-                    self.print_tree(right);
-                    eprint!("(");
-                    self.print_tree(left);
-                } else if let Some(inline_name) = inline_name {
-                    eprint!("(");
-                    self.print_tree(left);
-                    eprint!("{inline_name}");
-                    self.print_tree(right);
-                } else {
-                    eprint!("{node_name}(");
-                    self.print_tree(left);
-                    eprint!(", ");
-                    self.print_tree(right);
-                }
-
-                eprint!(")");
-            }
+    pub fn print_tree(&self, node_id: NodeId) -> utils::PrintTree {
+        utils::PrintTree {
+            node_id,
+            print_scopes: false,
+            tree_interner: &self.tree_interner,
+            string_interner: &self.string_interner,
         }
     }
 }

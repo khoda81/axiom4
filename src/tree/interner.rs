@@ -307,13 +307,13 @@ impl TreeInterner {
         self.resolve_index(node_id.0 - 2)
     }
 
-    pub fn iter_nodes(&self) -> impl Iterator<Item = Result<InternalNode, usize>> + '_ {
+    pub fn iter_nodes(&self) -> impl Iterator<Item = Result<InternalNode, NodeId>> + '_ {
         self.nodes
             .iter()
             .copied()
             .map(|node64| match node64.into_node() {
                 Ok(node) => Ok(node),
-                Err(NodeId(index)) => Err(index),
+                Err(node_id) => Err(node_id),
             })
     }
 
