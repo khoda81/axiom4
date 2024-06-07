@@ -153,13 +153,13 @@ impl NodeId {
         &'_ self,
         tree_interner: &'a TreeInterner,
         string_interner: &'a StringInterner,
-        print_scopes: bool,
     ) -> TreeFormatter<'a> {
         TreeFormatter {
             node_id: *self,
-            print_scopes,
             tree_interner,
             string_interner,
+            print_scopes: false,
+            parent_precedence: 0,
         }
     }
 }
@@ -168,9 +168,10 @@ impl NodeId {
 #[derive(Copy, Clone)]
 pub struct TreeFormatter<'a> {
     pub node_id: NodeId,
-    pub print_scopes: bool,
     pub tree_interner: &'a TreeInterner,
     pub string_interner: &'a StringInterner,
+    pub print_scopes: bool,
+    pub parent_precedence: u16,
 }
 
 impl Display for TreeFormatter<'_> {
@@ -191,14 +192,14 @@ impl<'a> TreeFormatter<'a> {
             .resolve(node.symbol)
             .expect("could not find symbol");
 
-        use crate::parser::Parser;
+        use crate::parser::{names, precedences};
 
-        let inline_name = match node_name {
-            Parser::ADD => Some(" + "),
-            Parser::EQ => Some(" = "),
-            Parser::LT => Some(" < "),
-            Parser::NEG => Some("-"),
-            _ => None,
+        let (inline_name, precedence) = match node_name {
+            names::EQ => (Some(" = "), precedences::COMP),
+            names::LT => (Some(" < "), precedences::COMP),
+            names::ADD => (Some(" + "), precedences::ADDITION),
+            names::NEG => (Some("-"), precedences::UNARY),
+            _ => (None, u16::MAX),
         };
 
         match node.kind {
@@ -208,19 +209,34 @@ impl<'a> TreeFormatter<'a> {
 
             super::NodeKind::Term => write!(f, "{}", inline_name.unwrap_or(node_name)),
             super::NodeKind::BinaryOperator => {
+                let right = self.tree_interner.right_child(node_id);
                 let right = Self {
-                    node_id: self.tree_interner.right_child(node_id),
-                    ..*self
-                };
-                let left = Self {
-                    node_id: self.tree_interner.left_child(node_id),
+                    node_id: right,
+                    parent_precedence: if node_name == names::ADD {
+                        precedence + 1
+                    } else {
+                        precedence
+                    },
                     ..*self
                 };
 
-                if node_name == Parser::UNARY {
+                let left = self.tree_interner.left_child(node_id);
+                let left = Self {
+                    node_id: left,
+                    parent_precedence: precedence,
+                    ..*self
+                };
+
+                if let Some(inline_name) = inline_name {
+                    let paranthesis = self.parent_precedence <= precedence;
+
+                    if paranthesis {
+                        write!(f, "({left}{inline_name}{right})")
+                    } else {
+                        write!(f, "{left}{inline_name}{right}")
+                    }
+                } else if node_name == names::UNARY {
                     write!(f, "{right}({left})")
-                } else if let Some(inline_name) = inline_name {
-                    write!(f, "({left}{inline_name}{right})")
                 } else {
                     write!(f, "{node_name}({left}, {right})")
                 }

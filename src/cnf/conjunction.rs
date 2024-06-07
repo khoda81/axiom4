@@ -106,9 +106,9 @@ impl<'a> ConjunctionRef<'a> {
         string_interner: &'a StringInterner,
     ) -> ConjunctionFormatter<'a> {
         ConjunctionFormatter {
+            conjunction: *self,
             tree_interner,
             string_interner,
-            conjunction: *self,
             print_scopes: false,
             positive_first: false,
         }
@@ -117,11 +117,11 @@ impl<'a> ConjunctionRef<'a> {
 
 #[must_use]
 pub struct ConjunctionFormatter<'a> {
-    tree_interner: &'a TreeInterner,
-    string_interner: &'a StringInterner,
-    print_scopes: bool,
-    positive_first: bool,
-    conjunction: ConjunctionRef<'a>,
+    pub tree_interner: &'a TreeInterner,
+    pub string_interner: &'a StringInterner,
+    pub print_scopes: bool,
+    pub positive_first: bool,
+    pub conjunction: ConjunctionRef<'a>,
 }
 
 impl Display for ConjunctionFormatter<'_> {
@@ -139,25 +139,25 @@ impl Display for ConjunctionFormatter<'_> {
 }
 
 impl<'a> ConjunctionFormatter<'a> {
-    fn format_positives(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        for &clause in self.conjunction.positives {
-            let formatter =
-                clause.format(self.tree_interner, self.string_interner, self.print_scopes);
-
-            write!(f, " | {formatter}")?;
+    fn format_clause(&self, clause: NodeId) -> crate::tree::interner::TreeFormatter<'_> {
+        crate::tree::interner::TreeFormatter {
+            node_id: clause,
+            tree_interner: self.tree_interner,
+            string_interner: self.string_interner,
+            print_scopes: self.print_scopes,
+            parent_precedence: 12,
         }
+    }
 
-        Ok(())
+    fn format_positives(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        self.conjunction.positives.iter().try_for_each(|&clause| {
+            write!(f, " | {formatter}", formatter = self.format_clause(clause))
+        })
     }
 
     fn format_negatives(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        for &clause in self.conjunction.negatives {
-            let formatter =
-                clause.format(self.tree_interner, self.string_interner, self.print_scopes);
-
-            write!(f, " ! {formatter}")?;
-        }
-
-        Ok(())
+        self.conjunction.negatives.iter().try_for_each(|&clause| {
+            write!(f, " ! {formatter}", formatter = self.format_clause(clause))
+        })
     }
 }

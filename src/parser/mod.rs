@@ -18,6 +18,25 @@ use nom::{
 
 pub mod utils;
 
+pub mod precedences {
+    pub const LOGIC_OR: u16 = 9;
+    pub const COMP: u16 = 9;
+    pub const ADDITION: u16 = 4;
+    pub const UNARY: u16 = 4;
+}
+
+pub mod names {
+    pub const UNARY: &str = "unary_operator";
+
+    pub const ADD: &str = "add";
+    pub const NEG: &str = "neg";
+    pub const MUL: &str = "mul";
+    pub const DIV: &str = "div";
+
+    pub const EQ: &str = "equals";
+    pub const LT: &str = "is_less_than";
+}
+
 pub enum ParseError {
     UnmatchedToken {
         expected_token: Token,
@@ -43,16 +62,6 @@ pub struct Parser {
 type Clause = (Sign, NodeId);
 
 impl Parser {
-    pub(crate) const UNARY: &'static str = "unary_operator";
-
-    pub(crate) const ADD: &'static str = "add";
-    pub(crate) const NEG: &'static str = "neg";
-    pub(crate) const MUL: &'static str = "mul";
-    pub(crate) const DIV: &'static str = "div";
-
-    pub(crate) const EQ: &'static str = "equals";
-    pub(crate) const LT: &'static str = "is_less_than";
-
     pub fn new(string_interner: StringInterner) -> Self {
         Self::with_interner(TreeInterner::new(), string_interner)
     }
@@ -84,7 +93,7 @@ impl Parser {
 
     fn make_unary_expression(&mut self, operator: Symbol, inner: NodeId) -> NodeId {
         let operator_node = self.make_factor(operator);
-        let unary = self.string_interner.intern(Self::UNARY);
+        let unary = self.string_interner.intern(names::UNARY);
 
         self.make_binary_expression(unary, inner, operator_node)
     }
@@ -141,7 +150,7 @@ impl Parser {
         if let [Token::Minus, rest @ ..] = input {
             let (rest, inner_node) = self.parse_factor(rest)?;
 
-            let neg = self.string_interner.intern(Self::NEG);
+            let neg = self.string_interner.intern(names::NEG);
             let node_id = self.make_unary_expression(neg, inner_node);
 
             return Ok((rest, node_id));
@@ -152,8 +161,8 @@ impl Parser {
 
     pub fn parse_term<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         let (mut rest, mut term) = self.parse_factor(input)?;
-        let div_symbol = self.string_interner.intern(Self::DIV);
-        let mul_symbol = self.string_interner.intern(Self::MUL);
+        let div_symbol = self.string_interner.intern(names::DIV);
+        let mul_symbol = self.string_interner.intern(names::MUL);
 
         loop {
             let parse_operator =
@@ -187,8 +196,8 @@ impl Parser {
 
     pub fn parse_expression<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], NodeId> {
         let (mut rest, mut expression) = self.parse_term(input)?;
-        let neg_symbol = self.string_interner.intern(Self::NEG);
-        let add_symbol = self.string_interner.intern(Self::ADD);
+        let neg_symbol = self.string_interner.intern(names::NEG);
+        let add_symbol = self.string_interner.intern(names::ADD);
 
         loop {
             let parse_operator =
@@ -220,8 +229,8 @@ impl Parser {
 
     pub fn parse_clause<'a>(&mut self, input: &'a [Token]) -> IResult<&'a [Token], Clause> {
         let (rest, mut left_side) = self.parse_expression(input)?;
-        let eq_symbol = self.string_interner.intern(Self::EQ);
-        let lt_symbol = self.string_interner.intern(Self::LT);
+        let eq_symbol = self.string_interner.intern(names::EQ);
+        let lt_symbol = self.string_interner.intern(names::LT);
 
         let parse_operator = utils::take_if(|&t: &Token| {
             matches!(
@@ -333,12 +342,9 @@ impl Parser {
     }
 
     pub fn format_tree(&self, node_id: NodeId) -> TreeFormatter {
-        TreeFormatter {
-            node_id,
-            print_scopes: false,
-            tree_interner: &self.tree_interner,
-            string_interner: &self.string_interner,
-        }
+        let mut formatter = node_id.format(&self.tree_interner, &self.string_interner);
+        formatter.parent_precedence = 12;
+        formatter
     }
 }
 
