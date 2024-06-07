@@ -332,7 +332,7 @@ impl Parser {
         Ok((input, cnf))
     }
 
-    pub fn print_tree(&self, node_id: NodeId) -> TreeFormatter {
+    pub fn format_tree(&self, node_id: NodeId) -> TreeFormatter {
         TreeFormatter {
             node_id,
             print_scopes: false,

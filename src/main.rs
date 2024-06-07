@@ -31,13 +31,13 @@ fn main() {
         eprintln!();
         eprintln!("Positives: ");
         for (idx, &clause) in cnf.positive_clauses().iter().enumerate() {
-            eprintln!("{idx}: {}", parser.print_tree(clause));
+            eprintln!("{idx}: {}", parser.format_tree(clause));
         }
 
         eprintln!();
         eprintln!("Negatives: ");
         for (idx, &clause) in cnf.negative_clauses().iter().enumerate() {
-            eprintln!("{idx}: {}", parser.print_tree(clause));
+            eprintln!("{idx}: {}", parser.format_tree(clause));
         }
     }
 
@@ -48,13 +48,13 @@ fn main() {
     let positive_clause = cnf.positive_clauses()[p_clause_index];
     eprintln!(
         "Positive[{p_clause_index}]: {}",
-        parser.print_tree(positive_clause)
+        parser.format_tree(positive_clause)
     );
 
     let negative_clause = cnf.negative_clauses()[n_clause_index];
     eprintln!(
         "Negative[{n_clause_index}]: {}",
-        parser.print_tree(negative_clause)
+        parser.format_tree(negative_clause)
     );
 
     let matcher = tree::matcher::Matcher::new(&parser.tree_interner);
@@ -88,7 +88,7 @@ fn main() {
     for (&variable_id, &tree) in matcher.assignments().iter() {
         let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
         let name = parser.string_interner.resolve(symbol).unwrap();
-        eprintln!("{name}: {}", parser.print_tree(tree));
+        eprintln!("{name}: {}", parser.format_tree(tree));
     }
 
     let mut r#match = matcher.finish();
