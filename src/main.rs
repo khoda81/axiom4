@@ -68,36 +68,7 @@ fn main() {
         .r#match(positive_clause, negative_clause)
         .expect("did not match");
 
-    eprintln!();
-    eprintln!("Bindings: ");
-    for variable_set in matcher.bindings().into_section_vec().iter_sections() {
-        if variable_set.is_empty() {
-            continue;
-        }
-
-        eprint!("{{ ");
-        for &variable_id in variable_set {
-            let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
-            let name = parser.string_interner.resolve(symbol).unwrap();
-
-            if print_variable_scopes {
-                let scope = parser.tree_interner.resolve_variable_scope(variable_id);
-                eprint!("{name}_{scope} ");
-            } else {
-                eprint!("{name} ");
-            }
-        }
-        eprintln!("}}");
-    }
-
-    eprintln!("Assignments: ");
-    for (&variable_id, &tree) in matcher.assignments().iter() {
-        let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
-        let name = parser.string_interner.resolve(symbol).unwrap();
-        eprintln!("{name}: {}", parser.format_tree(tree));
-    }
-
-    let mut r#match = matcher.finish();
+    print_matcher(&matcher, &parser, print_variable_scopes);
 
     let p_conjunction_index = cnf.find_conjunction(p_clause_index, cnf::Sign::Positive);
     let n_conjunction_index = cnf.find_conjunction(n_clause_index, cnf::Sign::Negative);
@@ -106,6 +77,8 @@ fn main() {
     let n_conjunction_ref = cnf.conjunction_ref(n_conjunction_index).unwrap();
 
     let selected_tree = cnf.positive_clauses()[p_clause_index];
+
+    let mut r#match = matcher.finish();
     let instance = r#match
         .instantiate(selected_tree, &mut parser.tree_interner)
         .unwrap();
@@ -139,8 +112,8 @@ fn main() {
     eprintln!();
     eprintln!("Conclusion:");
     eprintln!(
-        "{formatter}",
-        formatter = conclusion
+        "{}",
+        conclusion
             .as_conjunction_ref()
             .format(&parser.tree_interner, &parser.string_interner)
     );
@@ -189,6 +162,41 @@ fn main() {
         eprintln!();
         eprintln!("Interned Strings: ");
         eprintln!("{:?}", parser.string_interner.pool());
+    }
+}
+
+fn print_matcher(
+    matcher: &tree::matcher::Matcher<'_>,
+    parser: &parser::Parser,
+    print_variable_scopes: bool,
+) {
+    eprintln!();
+    eprintln!("Bindings: ");
+    for variable_set in matcher.bindings().into_section_vec().iter_sections() {
+        if variable_set.is_empty() {
+            continue;
+        }
+
+        eprint!("{{ ");
+        for &variable_id in variable_set {
+            let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
+            let name = parser.string_interner.resolve(symbol).unwrap();
+
+            if print_variable_scopes {
+                let scope = parser.tree_interner.resolve_variable_scope(variable_id);
+                eprint!("{name}_{scope} ");
+            } else {
+                eprint!("{name} ");
+            }
+        }
+        eprintln!("}}");
+    }
+
+    eprintln!("Assignments: ");
+    for (&variable_id, &tree) in matcher.assignments().iter() {
+        let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);
+        let name = parser.string_interner.resolve(symbol).unwrap();
+        eprintln!("{name}: {}", parser.format_tree(tree));
     }
 }
 
