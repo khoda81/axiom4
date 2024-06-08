@@ -19,7 +19,7 @@ use nom::{
 pub mod utils;
 
 pub mod precedences {
-    pub const LOGIC_OR: u16 = 9;
+    pub const LOGIC_OR: u16 = 12;
     pub const COMP: u16 = 9;
     pub const ADDITION: u16 = 4;
     pub const UNARY: u16 = 4;

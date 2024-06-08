@@ -1,5 +1,6 @@
 use axiom4::{cnf, lexer, parser, tree};
-use std::{fs::File, io::Read};
+use std::{fmt, fs};
+use std::{fmt::Display as _, io::Read as _};
 
 fn main() {
     let show_all_clauses = true;
@@ -10,7 +11,7 @@ fn main() {
     let print_variable_scopes = false;
     let cnf_path = "tests/data/playground.cnf";
 
-    let mut file = File::open(cnf_path).expect("failed to open file");
+    let mut file = fs::File::open(cnf_path).expect("failed to open file");
     let mut buf = String::new();
     file.read_to_string(&mut buf).expect("failed to read file");
 
@@ -34,30 +35,20 @@ fn main() {
     }
 
     if show_all_clauses {
-        eprintln!();
-        eprintln!("Positives: ");
-        for (idx, &clause) in cnf.positive_clauses().iter().enumerate() {
-            eprintln!("{idx}: {}", parser.format_tree(clause));
-        }
-
-        eprintln!();
-        eprintln!("Negatives: ");
-        for (idx, &clause) in cnf.negative_clauses().iter().enumerate() {
-            eprintln!("{idx}: {}", parser.format_tree(clause));
-        }
+        print_all_clauses(&cnf, &parser);
     }
 
     eprintln!();
     let p_clause_index = 15;
     let n_clause_index = 4;
 
-    let positive_clause = cnf.positive_clauses()[p_clause_index];
+    let positive_clause = cnf.clauses(cnf::Sign::Positive)[p_clause_index];
     eprintln!(
         "Positive[{p_clause_index}]: {}",
         parser.format_tree(positive_clause)
     );
 
-    let negative_clause = cnf.negative_clauses()[n_clause_index];
+    let negative_clause = cnf.clauses(cnf::Sign::Negative)[n_clause_index];
     eprintln!(
         "Negative[{n_clause_index}]: {}",
         parser.format_tree(negative_clause)
@@ -76,7 +67,7 @@ fn main() {
     let p_conjunction_ref = cnf.conjunction_ref(p_conjunction_index).unwrap();
     let n_conjunction_ref = cnf.conjunction_ref(n_conjunction_index).unwrap();
 
-    let selected_tree = cnf.positive_clauses()[p_clause_index];
+    let selected_tree = cnf.clauses(cnf::Sign::Positive)[p_clause_index];
 
     let mut r#match = matcher.finish();
     let instance = r#match
@@ -162,6 +153,47 @@ fn main() {
         eprintln!();
         eprintln!("Interned Strings: ");
         eprintln!("{:?}", parser.string_interner.pool());
+    }
+}
+
+fn print_all_clauses(cnf: &cnf::CNF, parser: &parser::Parser) {
+    eprintln!();
+    eprintln!("Positives: ");
+    print_clauses(cnf, parser, cnf::Sign::Positive);
+
+    eprintln!();
+    eprintln!("Negatives: ");
+    print_clauses(cnf, parser, cnf::Sign::Negative);
+}
+
+fn print_clauses(cnf: &cnf::CNF, parser: &parser::Parser, sign: cnf::Sign) {
+    const HIGHLIGHT: &str = "\x1b[1;33m";
+    const CLEAR: &str = "\x1b[0m";
+
+    let clauses = cnf.clauses(sign);
+    for (idx, &selected_clause) in clauses.iter().enumerate() {
+        let conjunction_index = cnf.find_conjunction(idx, sign);
+        let conjunction = cnf.conjunction_ref(conjunction_index).unwrap();
+
+        let conjunction_formatter = cnf::ConjunctionFormatter {
+            conjunction,
+            positive_first: sign == cnf::Sign::Positive,
+            format_clause: |clause: tree::NodeId, clause_sign, f: &mut fmt::Formatter| {
+                let mut formatter = clause.format(&parser.tree_interner, &parser.string_interner);
+                formatter.parent_precedence = parser::precedences::LOGIC_OR;
+                let is_selected = selected_clause == clause && clause_sign == sign;
+
+                if is_selected {
+                    f.write_str(HIGHLIGHT)?;
+                    formatter.fmt(f)?;
+                    f.write_str(CLEAR)
+                } else {
+                    formatter.fmt(f)
+                }
+            },
+        };
+
+        eprintln!("{idx}{conjunction_formatter}");
     }
 }
 

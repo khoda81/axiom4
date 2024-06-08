@@ -1,7 +1,5 @@
-use std::{
-    collections::VecDeque,
-    fmt::{Display, Write},
-};
+use std::collections::VecDeque;
+use std::fmt::{self, Display, Write as _};
 
 use crate::{
     lexer::interner::StringInterner,
@@ -116,28 +114,31 @@ impl<'a> ConjunctionRef<'a> {
         &'_ self,
         tree_interner: &'a TreeInterner,
         string_interner: &'a StringInterner,
-    ) -> ConjunctionFormatter<'a> {
+    ) -> impl fmt::Display + 'a {
         ConjunctionFormatter {
             conjunction: *self,
-            tree_interner,
-            string_interner,
-            print_scopes: false,
             positive_first: false,
+            format_clause: |clause: NodeId, _sign: Sign, f: &mut fmt::Formatter| {
+                let mut formatter = clause.format(tree_interner, string_interner);
+                formatter.parent_precedence = crate::parser::precedences::LOGIC_OR;
+                formatter.fmt(f)
+            },
         }
     }
 }
 
 #[must_use]
-pub struct ConjunctionFormatter<'a> {
-    pub tree_interner: &'a TreeInterner,
-    pub string_interner: &'a StringInterner,
-    pub print_scopes: bool,
+pub struct ConjunctionFormatter<'a, F> {
     pub positive_first: bool,
     pub conjunction: ConjunctionRef<'a>,
+    pub format_clause: F,
 }
 
-impl Display for ConjunctionFormatter<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<F> fmt::Display for ConjunctionFormatter<'_, F>
+where
+    F: Fn(NodeId, Sign, &mut fmt::Formatter) -> fmt::Result,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.positive_first {
             self.format_positives(f)?;
             self.format_negatives(f)?;
@@ -150,26 +151,21 @@ impl Display for ConjunctionFormatter<'_> {
     }
 }
 
-impl<'a> ConjunctionFormatter<'a> {
-    fn format_clause(&self, clause: NodeId) -> crate::tree::interner::TreeFormatter<'_> {
-        crate::tree::interner::TreeFormatter {
-            node_id: clause,
-            tree_interner: self.tree_interner,
-            string_interner: self.string_interner,
-            print_scopes: self.print_scopes,
-            parent_precedence: 12,
-        }
-    }
-
-    fn format_positives(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl<'a, F> ConjunctionFormatter<'a, F>
+where
+    F: Fn(NodeId, Sign, &mut fmt::Formatter) -> fmt::Result,
+{
+    fn format_positives(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conjunction.positives.iter().try_for_each(|&clause| {
-            write!(f, " | {formatter}", formatter = self.format_clause(clause))
+            f.write_str(" | ")?;
+            (self.format_clause)(clause, Sign::Positive, f)
         })
     }
 
-    fn format_negatives(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn format_negatives(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.conjunction.negatives.iter().try_for_each(|&clause| {
-            write!(f, " ! {formatter}", formatter = self.format_clause(clause))
+            f.write_str(" ! ")?;
+            (self.format_clause)(clause, Sign::Negative, f)
         })
     }
 }

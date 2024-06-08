@@ -1,5 +1,5 @@
 use crate::tree::NodeId;
-pub use conjunction::{Conjunction, ConjunctionRef, Sign};
+pub use conjunction::{Conjunction, ConjunctionFormatter, ConjunctionRef, Sign};
 use section_vec::SectionVec;
 
 mod conjunction;
@@ -62,12 +62,11 @@ impl CNF {
             })
     }
 
-    pub fn positive_clauses(&self) -> &[NodeId] {
-        self.positive_clauses.items()
-    }
-
-    pub fn negative_clauses(&self) -> &[NodeId] {
-        self.negative_clauses.items()
+    pub fn clauses(&self, sign: Sign) -> &[NodeId] {
+        match sign {
+            Sign::Positive => self.positive_clauses.items(),
+            Sign::Negative => self.negative_clauses.items(),
+        }
     }
 }
 
