@@ -304,7 +304,7 @@ impl TreeInterner {
     }
 
     pub fn intern_variable(&mut self, var_symbol: Symbol) -> Result<NodeId, Node64Error> {
-        let scope = ScopeId(self.scopes.current_section() as u32);
+        let scope = ScopeId(self.scopes.current_section_index() as u32);
         let id = self.scopes.items().len();
 
         let node = InternalNode::Variable { id }.try_into()?;
@@ -329,8 +329,8 @@ impl TreeInterner {
     }
 
     pub fn push_scope(&mut self) {
-        let last_scope = self.scopes.current_section();
-        if let Some([]) = self.scopes.section_slice(last_scope) {
+        let current_section_idx = self.scopes.current_section_index();
+        if let Some([]) = self.scopes.section_slice(current_section_idx) {
             // Last scope was empty skip
             return;
         }
