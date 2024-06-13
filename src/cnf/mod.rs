@@ -20,6 +20,11 @@ impl CNF {
     }
 
     pub fn assert(&mut self, conjunction: Conjunction) {
+        self.positive_clauses
+            .extend(conjunction.iter(Sign::Positive).copied());
+        self.negative_clauses
+            .extend(conjunction.iter(Sign::Negative).copied());
+
         self.positive_clauses.push_section();
         self.negative_clauses.push_section();
 
@@ -28,11 +33,6 @@ impl CNF {
             self.negative_clauses.section_indices().len(),
             "expected positive and negative section count to be equal"
         );
-
-        self.positive_clauses
-            .extend(conjunction.iter(Sign::Positive).copied());
-        self.negative_clauses
-            .extend(conjunction.iter(Sign::Negative).copied());
     }
 
     pub fn find_conjunction(&self, clause_index: usize, sign: Sign) -> usize {
@@ -55,7 +55,6 @@ impl CNF {
 
         positives
             .zip(negatives)
-            .skip(1)
             .map(|(positives, negatives)| ConjunctionRef {
                 positives,
                 negatives,

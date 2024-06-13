@@ -1,33 +1,33 @@
 use crate::cnf::section_vec::SectionVec;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) type Symbol = usize;
+pub(super) type Var = usize;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Binding {
+struct Bucket {
     rank: u32,
-    parent: Symbol,
+    parent: Var,
 }
 
-impl Binding {
-    pub fn new(parent: Symbol) -> Self {
+impl Bucket {
+    pub fn new(parent: Var) -> Self {
         Self { rank: 0, parent }
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Bindings {
-    bindings: BTreeMap<Symbol, Binding>,
+pub struct Buckets {
+    bindings: BTreeMap<Var, Bucket>,
 }
 
-impl Bindings {
+impl Buckets {
     pub fn new() -> Self {
         Self {
             bindings: BTreeMap::new(),
         }
     }
 
-    pub fn find_root(&self, symbol: Symbol) -> Symbol {
+    pub fn find_root(&self, symbol: Var) -> Var {
         let Some(bind) = self.bindings.get(&symbol) else {
             return symbol;
         };
@@ -39,7 +39,7 @@ impl Bindings {
         self.find_root(bind.parent)
     }
 
-    pub fn bind(&mut self, symbol_1: Symbol, symbol_2: Symbol) -> (Option<Symbol>, Symbol) {
+    pub fn merge(&mut self, symbol_1: Var, symbol_2: Var) -> (Option<Var>, Var) {
         let bind_2 = *self.binding_mut(symbol_2);
         let bind_1 = self.binding_mut(symbol_1);
 
@@ -65,11 +65,11 @@ impl Bindings {
         }
     }
 
-    fn binding_mut(&mut self, symbol: Symbol) -> &mut Binding {
-        let bind = self.bindings.entry(symbol).or_insert(Binding::new(symbol));
+    fn binding_mut(&mut self, symbol: Var) -> &mut Bucket {
+        let bind = self.bindings.entry(symbol).or_insert(Bucket::new(symbol));
 
         if bind.parent == symbol {
-            let binding_ptr = bind as *mut Binding;
+            let binding_ptr = bind as *mut Bucket;
 
             // A hack to work around the borrow checker not accepting the code
             // SAFETY: self is borrowed mutably, therefor this pointer is a valid reference
@@ -80,8 +80,8 @@ impl Bindings {
         self.binding_mut(parent)
     }
 
-    pub fn into_section_vec(&self) -> SectionVec<Symbol> {
-        let mut reverse_map: BTreeSet<(Symbol, Symbol)> = BTreeSet::new();
+    pub fn into_section_vec(&self) -> SectionVec<Var> {
+        let mut reverse_map: BTreeSet<(Var, Var)> = BTreeSet::new();
 
         for &symbol in self.bindings.keys() {
             let root = self.find_root(symbol);
@@ -105,6 +105,8 @@ impl Bindings {
             current_root = root;
             section_vec.push(item);
         }
+
+        section_vec.push_section();
 
         section_vec
     }

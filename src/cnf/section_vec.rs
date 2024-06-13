@@ -50,7 +50,7 @@ impl<T> SectionVec<T> {
     }
 
     pub fn iter_sections(&self) -> impl Iterator<Item = &[T]> {
-        (0..=self.section_indices.len()).map_while(|idx| self.section_slice(idx))
+        (0..self.section_indices.len()).map_while(|idx| self.section_slice(idx))
     }
 
     pub fn section_indices(&self) -> &[usize] {

@@ -9,7 +9,7 @@ fn main() {
     let show_interned_strings = false;
 
     let print_variable_scopes = false;
-    let cnf_path = "tests/data/playground.cnf";
+    let cnf_path = "tests/data/base.axm";
 
     let mut file = fs::File::open(cnf_path).expect("failed to open file");
     let mut buf = String::new();
@@ -43,62 +43,40 @@ fn main() {
     let n_clause_index = 4;
 
     let positive_clause = cnf.clauses(cnf::Sign::Positive)[p_clause_index];
+    let p_conjunction = cnf.find_conjunction(p_clause_index, cnf::Sign::Positive);
+    let p_conjunction_ref = cnf.conjunction_ref(p_conjunction).unwrap();
+
     eprintln!(
-        "Positive[{p_clause_index}]: {}",
-        parser.format_tree(positive_clause)
+        "Positive[{p_clause_index}]{}",
+        format_highlighted(
+            p_conjunction_ref,
+            positive_clause,
+            cnf::Sign::Positive,
+            &parser
+        )
     );
 
     let negative_clause = cnf.clauses(cnf::Sign::Negative)[n_clause_index];
+    let n_conjunction = cnf.find_conjunction(n_clause_index, cnf::Sign::Negative);
+    let n_conjunction_ref = cnf.conjunction_ref(n_conjunction).unwrap();
     eprintln!(
-        "Negative[{n_clause_index}]: {}",
-        parser.format_tree(negative_clause)
+        "Negative[{p_clause_index}]{}",
+        format_highlighted(
+            n_conjunction_ref,
+            negative_clause,
+            cnf::Sign::Negative,
+            &parser
+        )
     );
 
-    let matcher = tree::matcher::Matcher::new(&parser.tree_interner);
-    let matcher = matcher
-        .r#match(positive_clause, negative_clause)
-        .expect("did not match");
-
-    print_matcher(&matcher, &parser, print_variable_scopes);
-
-    let p_conjunction_index = cnf.find_conjunction(p_clause_index, cnf::Sign::Positive);
-    let n_conjunction_index = cnf.find_conjunction(n_clause_index, cnf::Sign::Negative);
-
-    let p_conjunction_ref = cnf.conjunction_ref(p_conjunction_index).unwrap();
-    let n_conjunction_ref = cnf.conjunction_ref(n_conjunction_index).unwrap();
-
-    let selected_tree = cnf.clauses(cnf::Sign::Positive)[p_clause_index];
-
-    let mut r#match = matcher.finish();
-    let instance = r#match
-        .instantiate(selected_tree, &mut parser.tree_interner)
-        .unwrap();
-
-    let mut conclusion = cnf::Conjunction::new();
-
-    p_conjunction_ref
-        .negatives
-        .iter()
-        .chain(n_conjunction_ref.negatives)
-        .map(|&clause| {
-            r#match
-                .instantiate(clause, &mut parser.tree_interner)
-                .unwrap()
-        })
-        .filter(|&clause| clause != instance)
-        .for_each(|clause| conclusion.push(cnf::Sign::Negative, clause));
-
-    p_conjunction_ref
-        .positives
-        .iter()
-        .chain(n_conjunction_ref.positives)
-        .map(|&clause| {
-            r#match
-                .instantiate(clause, &mut parser.tree_interner)
-                .unwrap()
-        })
-        .filter(|&clause| clause != instance)
-        .for_each(|clause| conclusion.push(cnf::Sign::Positive, clause));
+    let mut conclusion = conclude(
+        &mut parser,
+        positive_clause,
+        negative_clause,
+        p_conjunction_ref,
+        n_conjunction_ref,
+        print_variable_scopes,
+    );
 
     eprintln!();
     eprintln!("Conclusion:");
@@ -156,6 +134,55 @@ fn main() {
     }
 }
 
+fn conclude(
+    parser: &mut parser::Parser,
+    positive_clause: tree::NodeId,
+    negative_clause: tree::NodeId,
+    p_conjunction_ref: cnf::ConjunctionRef<'_>,
+    n_conjunction_ref: cnf::ConjunctionRef<'_>,
+    print_variable_scopes: bool,
+) -> cnf::Conjunction {
+    let matcher = tree::matcher::Matcher::new(&parser.tree_interner);
+    let matcher = matcher
+        .r#match(positive_clause, negative_clause)
+        .expect("did not match");
+
+    print_matcher(&matcher, parser, print_variable_scopes);
+
+    let mut r#match = matcher.finish();
+    let instance = r#match
+        .instantiate(positive_clause, &mut parser.tree_interner)
+        .unwrap();
+
+    let mut conclusion = cnf::Conjunction::new();
+
+    p_conjunction_ref
+        .negatives
+        .iter()
+        .chain(n_conjunction_ref.negatives)
+        .map(|&clause| {
+            r#match
+                .instantiate(clause, &mut parser.tree_interner)
+                .unwrap()
+        })
+        .filter(|&clause| clause != instance)
+        .for_each(|clause| conclusion.push(cnf::Sign::Negative, clause));
+
+    p_conjunction_ref
+        .positives
+        .iter()
+        .chain(n_conjunction_ref.positives)
+        .map(|&clause| {
+            r#match
+                .instantiate(clause, &mut parser.tree_interner)
+                .unwrap()
+        })
+        .filter(|&clause| clause != instance)
+        .for_each(|clause| conclusion.push(cnf::Sign::Positive, clause));
+
+    conclusion
+}
+
 fn print_all_clauses(cnf: &cnf::CNF, parser: &parser::Parser) {
     eprintln!();
     eprintln!("Positives: ");
@@ -167,33 +194,44 @@ fn print_all_clauses(cnf: &cnf::CNF, parser: &parser::Parser) {
 }
 
 fn print_clauses(cnf: &cnf::CNF, parser: &parser::Parser, sign: cnf::Sign) {
-    const HIGHLIGHT: &str = "\x1b[1;33m";
-    const CLEAR: &str = "\x1b[0m";
-
     let clauses = cnf.clauses(sign);
     for (idx, &selected_clause) in clauses.iter().enumerate() {
         let conjunction_index = cnf.find_conjunction(idx, sign);
         let conjunction = cnf.conjunction_ref(conjunction_index).unwrap();
-
-        let conjunction_formatter = cnf::ConjunctionFormatter {
-            conjunction,
-            positive_first: sign == cnf::Sign::Positive,
-            format_clause: |clause: tree::NodeId, clause_sign, f: &mut fmt::Formatter| {
-                let mut formatter = clause.format(&parser.tree_interner, &parser.string_interner);
-                formatter.parent_precedence = parser::precedences::LOGIC_OR;
-                let is_selected = selected_clause == clause && clause_sign == sign;
-
-                if is_selected {
-                    f.write_str(HIGHLIGHT)?;
-                    formatter.fmt(f)?;
-                    f.write_str(CLEAR)
-                } else {
-                    formatter.fmt(f)
-                }
-            },
-        };
+        let conjunction_formatter = format_highlighted(conjunction, selected_clause, sign, parser);
 
         eprintln!("{idx}{conjunction_formatter}");
+    }
+}
+
+fn format_highlighted<'a>(
+    conjunction: cnf::ConjunctionRef<'a>,
+    selected_clause: tree::NodeId,
+    sign: cnf::Sign,
+    parser: &'a parser::Parser,
+) -> cnf::ConjunctionFormatter<
+    'a,
+    impl Fn(tree::NodeId, cnf::Sign, &mut fmt::Formatter<'_>) -> fmt::Result + 'a,
+> {
+    const HIGHLIGHT: &str = "\x1b[30;43m";
+    const CLEAR: &str = "\x1b[0m";
+
+    cnf::ConjunctionFormatter {
+        conjunction,
+        first_side: sign,
+        format_clause: move |clause: tree::NodeId, clause_sign, f: &mut fmt::Formatter| {
+            let mut formatter = clause.format(&parser.tree_interner, &parser.string_interner);
+            formatter.parent_precedence = parser::precedences::LOGIC_OR;
+            let is_selected = selected_clause == clause && clause_sign == sign;
+
+            if is_selected {
+                f.write_str(HIGHLIGHT)?;
+                formatter.fmt(f)?;
+                f.write_str(CLEAR)
+            } else {
+                formatter.fmt(f)
+            }
+        },
     }
 }
 
@@ -205,10 +243,6 @@ fn print_matcher(
     eprintln!();
     eprintln!("Bindings: ");
     for variable_set in matcher.bindings().into_section_vec().iter_sections() {
-        if variable_set.is_empty() {
-            continue;
-        }
-
         eprint!("{{ ");
         for &variable_id in variable_set {
             let symbol = parser.tree_interner.resolve_variable_symbol(variable_id);

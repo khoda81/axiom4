@@ -361,19 +361,19 @@ impl TreeInterner {
             return Ok(*entry);
         };
 
-        let current_node = NodeId(self.nodes.len());
-        let next_node = NodeId(self.nodes.len().wrapping_add(1));
+        let next_index = self.nodes.len();
+        let next_next_index = self.nodes.len().wrapping_add(1);
 
         let left_ref = Node64::new_reference(left)?;
         let right_ref = Node64::new_reference(right)?;
         let node = InternalNode::BinaryOperator(operator).try_into()?;
 
-        if left.0 == Self::left_child_index(current_node)
-            && right.0 == Self::right_child_index(current_node)
+        if left.0 == Self::left_child_index(next_index)
+            && right.0 == Self::right_child_index(next_index)
         {
             // Don't push children, last two nodes are children
             self.nodes.extend([node]);
-        } else if left.0 == Self::left_child_index(next_node) {
+        } else if left.0 == Self::left_child_index(next_next_index) {
             // Only push right, left child is in place
             self.nodes.extend([right_ref, node]);
         } else {
@@ -414,19 +414,19 @@ impl TreeInterner {
     }
 
     pub fn right_child(&self, node_id: NodeId) -> NodeId {
-        self.resolve_index(Self::left_child_index(node_id))
+        self.resolve_index(Self::right_child_index(node_id.0))
     }
 
     pub fn left_child(&self, node_id: NodeId) -> NodeId {
-        self.resolve_index(Self::right_child_index(node_id))
+        self.resolve_index(Self::left_child_index(node_id.0))
     }
 
-    fn left_child_index(node_id: NodeId) -> usize {
-        node_id.0.wrapping_sub(1)
+    fn right_child_index(index: usize) -> usize {
+        index.wrapping_sub(1)
     }
 
-    fn right_child_index(node_id: NodeId) -> usize {
-        node_id.0.wrapping_sub(2)
+    fn left_child_index(index: usize) -> usize {
+        index.wrapping_sub(2)
     }
 
     pub fn iter_nodes(&self) -> impl Iterator<Item = Result<InternalNode, NodeId>> + '_ {

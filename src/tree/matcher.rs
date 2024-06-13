@@ -1,6 +1,6 @@
 use super::{interner::TreeInterner, NodeId};
 use crate::tree::interner::InternalNode;
-use binding::Symbol;
+use binding::Var;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -9,15 +9,15 @@ pub mod binding;
 #[derive(Clone, Debug)]
 pub struct Matcher<'a> {
     context: &'a TreeInterner,
-    bindings: binding::Bindings,
-    assignments: BTreeMap<Symbol, NodeId>,
+    bindings: binding::Buckets,
+    assignments: BTreeMap<Var, NodeId>,
 }
 
 impl<'a> Matcher<'a> {
     pub fn new(context: &'a TreeInterner) -> Self {
         Self {
             context,
-            bindings: binding::Bindings::new(),
+            bindings: binding::Buckets::new(),
             assignments: BTreeMap::new(),
         }
     }
@@ -52,7 +52,7 @@ impl<'a> Matcher<'a> {
         }
     }
 
-    pub fn assign(mut self, variable: Symbol, value: NodeId) -> Option<Self> {
+    pub fn assign(mut self, variable: Var, value: NodeId) -> Option<Self> {
         let variable = self.bindings.find_root(variable);
 
         use std::collections::btree_map::Entry;
@@ -71,8 +71,8 @@ impl<'a> Matcher<'a> {
         Some(self)
     }
 
-    pub fn bind(mut self, var_a: Symbol, var_b: Symbol) -> Option<Self> {
-        if let (Some(old_root), new_root) = self.bindings.bind(var_a, var_b) {
+    pub fn bind(mut self, var_a: Var, var_b: Var) -> Option<Self> {
+        if let (Some(old_root), new_root) = self.bindings.merge(var_a, var_b) {
             if let Some(old_value) = self.assignments.remove(&old_root) {
                 if let Some(root_value) = self.assignments.get(&new_root).copied() {
                     return self.r#match(old_value, root_value);
@@ -83,17 +83,17 @@ impl<'a> Matcher<'a> {
         Some(self)
     }
 
-    pub fn bindings(&self) -> &binding::Bindings {
+    pub fn bindings(&self) -> &binding::Buckets {
         &self.bindings
     }
 
-    pub fn assignments(&self) -> &BTreeMap<Symbol, NodeId> {
+    pub fn assignments(&self) -> &BTreeMap<Var, NodeId> {
         &self.assignments
     }
 
     pub fn finish(self) -> Match {
         Match {
-            bindings: self.bindings,
+            buckets: self.bindings,
             assignments: self.assignments,
             instance_cache: BTreeMap::new(),
         }
@@ -106,8 +106,8 @@ pub struct RecursiveInstance;
 
 #[derive(Clone, Debug)]
 pub struct Match {
-    bindings: binding::Bindings,
-    assignments: BTreeMap<Symbol, NodeId>,
+    buckets: binding::Buckets,
+    assignments: BTreeMap<Var, NodeId>,
     instance_cache: BTreeMap<NodeId, Result<NodeId, RecursiveInstance>>,
 }
 
@@ -130,12 +130,14 @@ impl Match {
             InternalNode::Term(_) => tree,
 
             InternalNode::Variable { id } => {
-                let root_var = self.bindings.find_root(id);
+                let root_var = self.buckets.find_root(id);
 
                 match self.assignments.get(&root_var) {
                     Some(assignment) => self.instantiate(*assignment, context)?,
                     None => {
                         // This is a free variable, create a new variable with the same name
+                        // BUG: This can cause variable collision since we may bind two variables
+                        // with different buckets into the same name
                         let symbol = context.resolve_variable_symbol(id);
                         context.intern_variable(symbol).unwrap()
                     }

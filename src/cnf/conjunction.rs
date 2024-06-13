@@ -114,10 +114,11 @@ impl<'a> ConjunctionRef<'a> {
         &'_ self,
         tree_interner: &'a TreeInterner,
         string_interner: &'a StringInterner,
-    ) -> impl fmt::Display + 'a {
+    ) -> ConjunctionFormatter<'a, impl Fn(NodeId, Sign, &mut fmt::Formatter<'_>) -> fmt::Result + 'a>
+    {
         ConjunctionFormatter {
             conjunction: *self,
-            positive_first: false,
+            first_side: Sign::Negative,
             format_clause: |clause: NodeId, _sign: Sign, f: &mut fmt::Formatter| {
                 let mut formatter = clause.format(tree_interner, string_interner);
                 formatter.parent_precedence = crate::parser::precedences::LOGIC_OR;
@@ -129,7 +130,7 @@ impl<'a> ConjunctionRef<'a> {
 
 #[must_use]
 pub struct ConjunctionFormatter<'a, F> {
-    pub positive_first: bool,
+    pub first_side: Sign,
     pub conjunction: ConjunctionRef<'a>,
     pub format_clause: F,
 }
@@ -139,7 +140,7 @@ where
     F: Fn(NodeId, Sign, &mut fmt::Formatter) -> fmt::Result,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.positive_first {
+        if let Sign::Positive = self.first_side {
             self.format_positives(f)?;
             self.format_negatives(f)?;
         } else {
